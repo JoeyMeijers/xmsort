@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"container/heap"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
+	"time"
 )
 
 // Configuratie voor de sortering
@@ -62,41 +64,51 @@ func extractField(line string, key SortKey) string {
 
 // Splits het grote bestand in kleinere chunks
 func splitFile(inputFile string, chunkSize int, sortKeys []SortKey) ([]string, error) {
-	file, err := os.Open(inputFile)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+    file, err := os.Open(inputFile)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
 
-	var chunkFiles []string
-	scanner := bufio.NewScanner(file)
-	var lines []string
-	chunkIndex := 0
+    var chunkFiles []string
+    reader := bufio.NewReader(file)
+    var lines []string
+    chunkIndex := 0
 
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-		if len(lines) >= chunkSize {
-			sortLines(lines, sortKeys)
-			chunkFile, err := writeChunk(lines, chunkIndex)
-			if err != nil {
-				return nil, err
-			}
-			chunkFiles = append(chunkFiles, chunkFile)
-			lines = nil
-			chunkIndex++
-		}
-	}
+    for {
+        line, err := reader.ReadString('\n')
+        if err != nil {
+            if err == io.EOF {
+                if len(line) > 0 {
+                    lines = append(lines, line)
+                }
+                break
+            }
+            return nil, err
+        }
+        lines = append(lines, line)
+        if len(lines) >= chunkSize {
+            sortLines(lines, sortKeys)
+            chunkFile, err := writeChunk(lines, chunkIndex)
+            if err != nil {
+                return nil, err
+            }
+            chunkFiles = append(chunkFiles, chunkFile)
+            lines = nil
+            chunkIndex++
+        }
+    }
 
-	if len(lines) > 0 {
-		sortLines(lines, sortKeys)
-		chunkFile, err := writeChunk(lines, chunkIndex)
-		if err != nil {
-			return nil, err
-		}
-		chunkFiles = append(chunkFiles, chunkFile)
-	}
+    if len(lines) > 0 {
+        sortLines(lines, sortKeys)
+        chunkFile, err := writeChunk(lines, chunkIndex)
+        if err != nil {
+            return nil, err
+        }
+        chunkFiles = append(chunkFiles, chunkFile)
+    }
 
-	return chunkFiles, nil
+    return chunkFiles, nil
 }
 
 // Schrijft een chunk naar een bestand
@@ -143,68 +155,85 @@ func (h *minHeap) Pop() interface{} {
 
 // Merge sort implementatie met heap
 func mergeChunks(outputFile string, chunkFiles []string) error {
-	out, err := os.Create(outputFile)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	writer := bufio.NewWriter(out)
+    out, err := os.Create(outputFile)
+    if err != nil {
+        return err
+    }
+    defer out.Close()
+    writer := bufio.NewWriter(out)
 
-	minHeap := &minHeap{}
-	heap.Init(minHeap)
+    minHeap := &minHeap{}
+    heap.Init(minHeap)
 
-	files := make([]*os.File, len(chunkFiles))
-	scanners := make([]*bufio.Scanner, len(chunkFiles))
+    files := make([]*os.File, len(chunkFiles))
+    readers := make([]*bufio.Reader, len(chunkFiles))
 
-	for i, file := range chunkFiles {
-		f, err := os.Open(file)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		files[i] = f
-		scanners[i] = bufio.NewScanner(f)
-		if scanners[i].Scan() {
-			heap.Push(minHeap, heapItem{line: scanners[i].Text(), fileID: i})
-		}
-	}
+    for i, file := range chunkFiles {
+        f, err := os.Open(file)
+        if err != nil {
+            return err
+        }
+        files[i] = f
+        readers[i] = bufio.NewReader(f)
+        line, err := readers[i].ReadString('\n')
+        if err != nil && err != io.EOF {
+            return err
+        }
+        if len(line) > 0 {
+            heap.Push(minHeap, heapItem{line: line, fileID: i})
+        }
+    }
 
-	for minHeap.Len() > 0 {
-		item := heap.Pop(minHeap).(heapItem)
-		writer.WriteString(item.line + "\n")
-		if scanners[item.fileID].Scan() {
-			heap.Push(minHeap, heapItem{line: scanners[item.fileID].Text(), fileID: item.fileID})
-		}
-	}
+    for minHeap.Len() > 0 {
+        item := heap.Pop(minHeap).(heapItem)
+        writer.WriteString(item.line)
+        line, err := readers[item.fileID].ReadString('\n')
+        if err != nil && err != io.EOF {
+            return err
+        }
+        if len(line) > 0 {
+            heap.Push(minHeap, heapItem{line: line, fileID: item.fileID})
+        }
+    }
 
-	writer.Flush()
+    writer.Flush()
 
-	// Verwijder tijdelijke bestanden
-	for _, file := range chunkFiles {
-		os.Remove(file)
-	}
+    // Verwijder tijdelijke bestanden
+    for _, file := range chunkFiles {
+        os.Remove(file)
+    }
 
-	return nil
+    return nil
 }
 
 func main() {
-	fmt.Println("Go external sort")
-	inputFile := "test_data_m.txt"
-	outputFile := "sorted_output.txt"
-	chunkSize := 100_000 // Aantal regels per chunk
-	sortKeys := []SortKey{
-		{Start: 0, Length: 4, Numeric: true, Asc: false},
-		{Start: 5, Length: 10, Numeric: false, Asc: true},
-	}
+    start := time.Now()
+    fmt.Println("Go external sort")
+    fmt.Printf("Start: %v\n", start)
+    inputFile := "test_data_l.txt"
+    outputFile := "sorted_output.txt"
+    chunkSize := 500_000 // Aantal regels per chunk
+    sortKeys := []SortKey{
+        {Start: 0, Length: 4, Numeric: true, Asc: false},
+        {Start: 5, Length: 10, Numeric: false, Asc: true},
+        {Start: 15, Length: 10, Numeric: false, Asc: false},
+    }
 
-	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys)
-	if err != nil {
-		fmt.Println("Error splitting file:", err)
-		return
-	}
+    if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+        fmt.Println("Inputbestand bestaat niet!")
+        return
+    }
 
-	err = mergeChunks(outputFile, chunkFiles)
-	if err != nil {
-		fmt.Println("Error merging chunks:", err)
-	}
+    chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys)
+    if err != nil {
+        fmt.Println("Error splitting file:", err)
+        return
+    }
+    fmt.Println("Aantal chunk bestanden:", len(chunkFiles))
+
+    err = mergeChunks(outputFile, chunkFiles)
+    if err != nil {
+        fmt.Println("Error merging chunks:", err)
+    }
+    fmt.Printf("Sorting completed in %v\n", time.Since(start))
 }
