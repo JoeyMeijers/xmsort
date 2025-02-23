@@ -1,3 +1,3 @@
-module foo
+module xmsort
 
 go 1.24.0
