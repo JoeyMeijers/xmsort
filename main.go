@@ -161,6 +161,7 @@ func mergeChunks(outputFile string, chunkFiles []string) error {
 		if err != nil {
 			return err
 		}
+		defer f.Close()
 		files[i] = f
 		scanners[i] = bufio.NewScanner(f)
 		if scanners[i].Scan() {
@@ -177,15 +178,18 @@ func mergeChunks(outputFile string, chunkFiles []string) error {
 	}
 
 	writer.Flush()
-	for _, f := range files {
-		f.Close()
+
+	// Verwijder tijdelijke bestanden
+	for _, file := range chunkFiles {
+		os.Remove(file)
 	}
+
 	return nil
 }
 
 func main() {
 	fmt.Println("Go external sort")
-	inputFile := "test_data_s.txt"
+	inputFile := "test_data_m.txt"
 	outputFile := "sorted_output.txt"
 	chunkSize := 100_000 // Aantal regels per chunk
 	sortKeys := []SortKey{
