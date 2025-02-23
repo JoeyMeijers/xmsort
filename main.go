@@ -69,7 +69,7 @@ func extractField(line string, key SortKey) string {
 }
 
 // Splits het grote bestand in kleinere chunks
-func splitFile(inputFile string, chunkSize int, sortKeys []SortKey) ([]string, error) {
+func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey) ([]string, e
 			go func(lines []string, chunkIndex int) {
 				defer wg.Done()
 				sortLines(lines, sortKeys)
-				chunkFile, err := writeChunk(lines, chunkIndex)
+				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
 					errChan <- err
 					return
@@ -131,7 +131,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey) ([]string, e
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			sortLines(lines, sortKeys)
-			chunkFile, err := writeChunk(lines, chunkIndex)
+			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
 				errChan <- err
 				return
@@ -154,8 +154,8 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey) ([]string, e
 }
 
 // Schrijft een chunk naar een bestand
-func writeChunk(lines []string, index int) (string, error) {
-	filename := fmt.Sprintf("chunk_%d.txt", index)
+func writeChunk(lines []string, index int, tempDir string) (string, error) {
+	filename := fmt.Sprintf("%s/chunk_%d.txt", tempDir, index)
 	file, err := os.Create(filename)
 	if err != nil {
 		return "", err
@@ -297,7 +297,7 @@ func main() {
 	start := time.Now()
 	fmt.Println("Go external sort")
 	fmt.Printf("Start: %v\n", start)
-	inputFile := "test_data_m.txt"
+	inputFile := "test_data_s.txt"
 	outputFile := "sorted_output.txt"
 	chunkSize := 1_000 // Aantal regels per chunk
 	sortKeys := []SortKey{
@@ -311,7 +311,16 @@ func main() {
 		return
 	}
 
-	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys)
+	// Maak een tijdelijke directory aan
+	tempDir, err := os.MkdirTemp("", "sort_chunks")
+	if err != nil {
+		fmt.Println("Error creating temp directory:", err)
+		return
+	}
+	defer os.RemoveAll(tempDir) // Verwijder de tijdelijke directory na afloop
+	println("Tijdelijke directory:", tempDir)
+
+	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
 	if err != nil {
 		fmt.Println("Error splitting file:", err)
 		return
