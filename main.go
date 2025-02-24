@@ -12,21 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/shirou/gopsutil/mem"
 )
-
-// Configuratie voor de sortering
-type SortKey struct {
-	Start   int
-	Length  int
-	Numeric bool
-	Asc     bool
-}
-
-type Config struct {
-	SortKeys  []SortKey
-	ChunkSize int
-}
 
 // Sorteerfunctie voor een batch regels
 func sortLines(lines []string, keys []SortKey) {
@@ -224,86 +211,136 @@ func (h *minHeap) Pop() interface{} {
 
 // Merge sort implementatie met heap
 func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey) error {
-    out, err := os.Create(outputFile)
-    if err != nil {
-        return err
-    }
-    defer out.Close()
-    writer := bufio.NewWriter(out)
+	out, err := os.Create(outputFile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	writer := bufio.NewWriter(out)
 
-    minHeap := &minHeap{}
-    heap.Init(minHeap)
+	minHeap := &minHeap{}
+	heap.Init(minHeap)
 
-    readers := make([]*bufio.Reader, len(chunkFiles))
-    files := make([]*os.File, len(chunkFiles))
-    var wg sync.WaitGroup
-    errChan := make(chan error, 1)
+	readers := make([]*bufio.Reader, len(chunkFiles))
+	files := make([]*os.File, len(chunkFiles))
+	var wg sync.WaitGroup
+	errChan := make(chan error, 1)
 
-    totalLines := 0
+	totalLines := 0
 
-    // Open the first line of each chunk file
-    for i := 0; i < len(chunkFiles); i++ {
-        f, err := os.Open(chunkFiles[i])
-        if err != nil {
-            return err
-        }
-        files[i] = f
-        readers[i] = bufio.NewReader(f)
-        line, err := readers[i].ReadString('\n')
-        if err != nil && err != io.EOF {
-            return err
-        }
-        line = strings.TrimSpace(line)
-        if len(line) > 0 {
-            heap.Push(minHeap, heapItem{line: line, fileID: i, sortKeys: sortKeys})
-        }
-    }
+	// Open the first line of each chunk file
+	for i := 0; i < len(chunkFiles); i++ {
+		f, err := os.Open(chunkFiles[i])
+		if err != nil {
+			return err
+		}
+		files[i] = f
+		readers[i] = bufio.NewReader(f)
+		line, err := readers[i].ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		line = strings.TrimSpace(line)
+		if len(line) > 0 {
+			heap.Push(minHeap, heapItem{line: line, fileID: i, sortKeys: sortKeys})
+		}
+	}
 
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        for minHeap.Len() > 0 {
-            item := heap.Pop(minHeap).(heapItem)
-            writer.WriteString(item.line + "\n")
-            totalLines++
-            line, err := readers[item.fileID].ReadString('\n')
-            if err != nil && err != io.EOF {
-                errChan <- err
-                return
-            }
-            line = strings.TrimSpace(line)
-            if len(line) > 0 {
-                heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys})
-            } else if err == io.EOF {
-                files[item.fileID].Close()
-            }
-        }
-        writer.Flush()
-    }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for minHeap.Len() > 0 {
+			item := heap.Pop(minHeap).(heapItem)
+			writer.WriteString(item.line + "\n")
+			totalLines++
+			line, err := readers[item.fileID].ReadString('\n')
+			if err != nil && err != io.EOF {
+				errChan <- err
+				return
+			}
+			line = strings.TrimSpace(line)
+			if len(line) > 0 {
+				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys})
+			} else if err == io.EOF {
+				files[item.fileID].Close()
+			}
+		}
+		writer.Flush()
+	}()
 
-    wg.Wait()
+	wg.Wait()
 
-    select {
-    case err := <-errChan:
-        return err
-    default:
-    }
+	select {
+	case err := <-errChan:
+		return err
+	default:
+	}
 
-    // Verwijder tijdelijke bestanden
-    for _, file := range chunkFiles {
-        os.Remove(file)
-    }
+	// Verwijder tijdelijke bestanden
+	for _, file := range chunkFiles {
+		os.Remove(file)
+	}
 
-    fmt.Printf("Total lines written: %d\n", totalLines)
-    return nil
+	fmt.Printf("Total lines written: %d\n", totalLines)
+	return nil
+}
+
+func calculateChunkSize(averageLineSize int) int {
+	v, _ := mem.VirtualMemory()
+
+	// Vrij geheugen in bytes
+	freeMemory := v.Free
+
+	// Reserveer 50% van het vrije geheugen voor je proces (je kunt dit naar wens aanpassen)
+	reservedMemory := freeMemory / 4
+
+	// Bereken de chunk size in aantal regels
+	chunkSize := int(reservedMemory / uint64(averageLineSize))
+
+	return chunkSize
+}
+
+// Schat de gemiddelde regelgrootte op basis van een sample uit het bestand
+func estimateAverageLineSize(filename string) int {
+	file, err := os.Open(filename)
+	if err != nil {
+		return 0 // Fallback
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var totalSize int
+	var count int
+
+	for count < 100 { // Sample n regels
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		totalSize += len(line)
+		count++
+	}
+
+	if count == 0 {
+		return 0
+	}
+	return totalSize / count
 }
 
 func main() {
 	start := time.Now()
 	fmt.Println("Go external sort")
 	fmt.Printf("Start: %v\n", start)
-	inputFile := "test_data_m.txt"
-	outputFile := "sorted_output.txt"
+
+	config := parseFlags() // Correct usage of parseFlags
+
+	fmt.Println("Input file:", config.InputFile)
+	fmt.Println("Output file:", config.OutputFile)
+	fmt.Println("Sort keys", config.SortKeys)
+
+	inputFile := config.InputFile
+	outputFile := config.OutputFile
+	sortKeys := config.SortKeys
 
 	// Dynamisch berekenen van de chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
@@ -311,11 +348,6 @@ func main() {
 	chunkSize := calculateChunkSize(averageLineSize)
 	fmt.Printf("Calculated chunk size: %d\n", chunkSize)
 
-	sortKeys := []SortKey{
-		{Start: 0, Length: 4, Numeric: true, Asc: false},
-		{Start: 5, Length: 10, Numeric: false, Asc: true},
-		{Start: 15, Length: 10, Numeric: false, Asc: false},
-	}
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		fmt.Println("Inputbestand bestaat niet!")
@@ -344,46 +376,4 @@ func main() {
 		fmt.Println("Error merging chunks:", err)
 	}
 	fmt.Printf("Sorting completed in %v\n", time.Since(start))
-}
-
-func calculateChunkSize(averageLineSize int) int {
-    v, _ := mem.VirtualMemory()
-
-    // Vrij geheugen in bytes
-    freeMemory := v.Free
-
-    // Reserveer 50% van het vrije geheugen voor je proces (je kunt dit naar wens aanpassen)
-    reservedMemory := freeMemory / 4
-
-    // Bereken de chunk size in aantal regels
-    chunkSize := int(reservedMemory / uint64(averageLineSize))
-
-    return chunkSize
-}
-
-// Schat de gemiddelde regelgrootte op basis van een sample uit het bestand
-func estimateAverageLineSize(filename string) int {
-	file, err := os.Open(filename)
-	if err != nil {
-		return 0 // Fallback
-	}
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-	var totalSize int
-	var count int
-
-	for count < 100 { // Sample n regels
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-		totalSize += len(line)
-		count++
-	}
-
-	if count == 0 {
-		return 0
-	}
-	return totalSize / count
 }
