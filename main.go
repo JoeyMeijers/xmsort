@@ -296,6 +296,10 @@ func calculateChunkSize(averageLineSize int) int {
 
 	// Bereken de chunk size in aantal regels
 	chunkSize := int(reservedMemory / uint64(averageLineSize))
+	// Zorg dat de chunk size niet te groot wordt
+	if chunkSize > 1_000_000 {
+		chunkSize = 1_000_000
+	}
 
 	return chunkSize
 }
@@ -341,6 +345,12 @@ func main() {
 	inputFile := config.InputFile
 	outputFile := config.OutputFile
 	sortKeys := config.SortKeys
+
+	// check if input file exists
+	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+		fmt.Println("Input file does not exist!")
+		return
+	}
 
 	// Dynamisch berekenen van de chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
