@@ -337,26 +337,22 @@ func estimateAverageLineSize(filename string) int {
 func main() {
 	// Settup logging
 	setupLogging()
-
-    start := time.Now()
-    logInfo("Go external sort")
-    logInfo("Start: %v", start)
-
     config := parseFlags()
-
-    logInfo("Input file: %v", config.InputFile)
-    logInfo("Output file: %v", config.OutputFile)
-    logInfo("Sort keys: %v", config.SortKeys)
-
     inputFile := config.InputFile
     outputFile := config.OutputFile
     sortKeys := config.SortKeys
-
     // check if input file exists
     if _, err := os.Stat(inputFile); os.IsNotExist(err) {
         logError("Input file does not exist!")
         return
     }
+
+    start := time.Now()
+    logInfo("Go external sort")
+    logInfo("Start: %v", start)
+    logInfo("Input file: %v", config.InputFile)
+    logInfo("Output file: %v", config.OutputFile)
+    logInfo("Sort keys: %v", config.SortKeys)
 
     // Dynamisch berekenen van de chunk size
     averageLineSize := estimateAverageLineSize(inputFile)
