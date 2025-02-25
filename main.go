@@ -138,7 +138,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
     default:
     }
 
-    fmt.Printf("Total lines read: %d\n", totalLines)
+    logInfo("Total lines read: %d", totalLines)
     return chunkFiles, nil
 }
 
@@ -281,7 +281,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey) err
         os.Remove(file)
     }
 
-    fmt.Printf("Total lines written: %d\n", totalLines)
+    logInfo("Total lines written: %d", totalLines)
     return nil
 }
 
@@ -309,7 +309,7 @@ func calculateChunkSize(averageLineSize int) int {
 
 // Schat de gemiddelde regelgrootte op basis van een sample uit het bestand
 func estimateAverageLineSize(filename string) int {
-    file, err := os.Open(filename)
+	file, err := os.Open(filename)
     if err != nil {
         return 0 // Fallback
     }
@@ -335,15 +335,18 @@ func estimateAverageLineSize(filename string) int {
 }
 
 func main() {
+	// Settup logging
+	setupLogging()
+
     start := time.Now()
-    fmt.Println("Go external sort")
-    fmt.Printf("Start: %v\n", start)
+    logInfo("Go external sort")
+    logInfo("Start: %v", start)
 
     config := parseFlags()
 
-    fmt.Println("Input file:", config.InputFile)
-    fmt.Println("Output file:", config.OutputFile)
-    fmt.Println("Sort keys", config.SortKeys)
+    logInfo("Input file: %v", config.InputFile)
+    logInfo("Output file: %v", config.OutputFile)
+    logInfo("Sort keys: %v", config.SortKeys)
 
     inputFile := config.InputFile
     outputFile := config.OutputFile
@@ -351,25 +354,25 @@ func main() {
 
     // check if input file exists
     if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-        fmt.Println("Input file does not exist!")
+        logError("Input file does not exist!")
         return
     }
 
     // Dynamisch berekenen van de chunk size
     averageLineSize := estimateAverageLineSize(inputFile)
-    fmt.Println("Estimated average line size:", averageLineSize)
+    logInfo("Estimated average line size: %v", averageLineSize)
     chunkSize := calculateChunkSize(averageLineSize)
-    fmt.Printf("Calculated chunk size: %d\n", chunkSize)
+    logInfo("Calculated chunk size: %d", chunkSize)
 
     if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-        fmt.Println("Inputbestand bestaat niet!")
+        logError("Inputbestand bestaat niet!")
         return
     }
 
     // Maak een tijdelijke directory aan
     tempDir, err := os.MkdirTemp("", "sort_chunks")
     if err != nil {
-        fmt.Println("Error creating temp directory:", err)
+        logError("Error creating temp directory: %v", err)
         return
     }
     // Defer zorgt ervoor dat de functie wordt uitgevoerd na het verlaten van de huidige functie
@@ -378,14 +381,14 @@ func main() {
 
     chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
     if err != nil {
-        fmt.Println("Error splitting file:", err)
+        logError("Error splitting file: %v", err)
         return
     }
-    fmt.Println("Aantal chunk bestanden:", len(chunkFiles))
+    logInfo("Aantal chunk bestanden: %v", len(chunkFiles))
 
     err = mergeChunks(outputFile, chunkFiles, sortKeys)
     if err != nil {
-        fmt.Println("Error merging chunks:", err)
+        logError("Error merging chunks: %v", err)
     }
-    fmt.Printf("Sorting completed in %v\n", time.Since(start))
+    logInfo("Sorting completed in %v\n", time.Since(start))
 }
