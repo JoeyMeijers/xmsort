@@ -15,7 +15,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-// Sorteerfunctie voor een batch regels
+// sortLines sorts a batch of lines based on the provided sort keys.
 func sortLines(lines []string, keys []SortKey) {
     sort.Slice(lines, func(i, j int) bool {
         for _, key := range keys {
@@ -44,9 +44,9 @@ func sortLines(lines []string, keys []SortKey) {
     })
 }
 
-// Extracteert een veld uit een regel
+// extractField extracts a field from a line based on the provided sort key.
 func extractField(line string, key SortKey) string {
-    line = strings.TrimSpace(line) // Voorkom extra newlines
+    line = strings.TrimSpace(line) // Prevent extra newlines
     if key.Start >= len(line) {
         return ""
     }
@@ -57,7 +57,7 @@ func extractField(line string, key SortKey) string {
     return line[key.Start:end]
 }
 
-// Splits het grote bestand in kleinere chunks
+// splitFile splits a large file into smaller chunks based on the chunk size and sort keys.
 func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string) ([]string, error) {
     file, err := os.Open(inputFile)
     if err != nil {
@@ -142,7 +142,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
     return chunkFiles, nil
 }
 
-// Schrijft een chunk naar een bestand
+// writeChunk writes a chunk of lines to a file.
 func writeChunk(lines []string, index int, tempDir string) (string, error) {
     filename := fmt.Sprintf("%s/chunk_%d.txt", tempDir, index)
     file, err := os.Create(filename)
@@ -162,13 +162,14 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
     return filename, nil
 }
 
-// Heap-element voor het mergen van chunks
+// heapItem represents an element in the heap used for merging chunks.
 type heapItem struct {
     line     string
     fileID   int
     sortKeys []SortKey
 }
 
+// minHeap is a min-heap of heapItems.
 type minHeap []heapItem
 
 func (h minHeap) Len() int { return len(h) }
@@ -209,14 +210,15 @@ func (h *minHeap) Pop() interface{} {
     return item
 }
 
-// Merge sort implementatie met heap
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey) error {
-    out, err := os.Create(outputFile)
-    if err != nil {
+// mergeChunks merges sorted chunks into a single output file.
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string) error {
+    tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
+    out, err := os.Create(tempOutputFile)
+    if (err != nil) {
         return err
     }
     defer out.Close()
-    writer := bufio.NewWriter(out)
+    writer := bufio.NewWriterSize(out, 16*1024*1024) // Vergroot de buffer
 
     minHeap := &minHeap{}
     heap.Init(minHeap)
@@ -251,7 +253,11 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey) err
         defer wg.Done()
         for minHeap.Len() > 0 {
             item := heap.Pop(minHeap).(heapItem)
-            writer.WriteString(item.line + "\n")
+            _, err := writer.WriteString(item.line + "\n")
+            if err != nil {
+                errChan <- err
+                return
+            }
             totalLines++
             line, err := readers[item.fileID].ReadString('\n')
             if err != nil && err != io.EOF {
@@ -282,34 +288,47 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey) err
     }
 
     logInfo("Total lines written: %d", totalLines)
+
+    // Verplaats het tijdelijke output bestand naar de uiteindelijke locatie
+    out.Close()
+    err = os.Rename(tempOutputFile, outputFile)
+    if err != nil {
+        return err
+    }
+
     return nil
 }
 
+// calculateChunkSize calculates the chunk size based on the average line size and available memory.
 func calculateChunkSize(averageLineSize int) int {
     v, _ := mem.VirtualMemory()
 
-    // Vrij geheugen in bytes
+    // Available memory in bytes
     availableMemory := v.Available
 
-    // Reserveer x% van het vrije geheugen voor je proces
+    // Reserve x% of the available memory for your process
     reservedMemory := availableMemory / 10
 
-    // Bereken de chunk size in aantal regels
+    // Calculate the chunk size in number of lines
     chunkSize := int(reservedMemory / uint64(averageLineSize))
 
-    // Zorg dat de chunk size niet te groot wordt
-    if chunkSize > 500_000 {
-        chunkSize = 500_000
+    logInfo("Reserved memory for chunks: %.2f MB", float64(reservedMemory)/1e6)
+
+    //Ensure the chunk size is not too large
+    if chunkSize > 2_500_000 {
+        logWarning("Chunk size too large, reducing to 2.500.000 records per chunk")
+        chunkSize = 2_500_000
     } else if chunkSize < 10_000 {
-        chunkSize = 10_000 // Minimum chunksize om overhead te voorkomen
+        logWarning("Chunk size too small, increasing to 10.000 records per chunk to avoid overhead")
+        chunkSize = 10_000
     }
 
     return chunkSize
 }
 
-// Schat de gemiddelde regelgrootte op basis van een sample uit het bestand
+// estimateAverageLineSize estimates the average line size based on a sample from the file.
 func estimateAverageLineSize(filename string) int {
-	file, err := os.Open(filename)
+    file, err := os.Open(filename)
     if err != nil {
         return 0 // Fallback
     }
@@ -319,7 +338,7 @@ func estimateAverageLineSize(filename string) int {
     var totalSize int
     var count int
 
-    for count < 100 { // Sample n regels
+    for count < 100 { // Sample n lines
         line, err := reader.ReadString('\n')
         if err != nil {
             break
@@ -334,14 +353,15 @@ func estimateAverageLineSize(filename string) int {
     return totalSize / count
 }
 
+// main is the entry point of the program.
 func main() {
-	// Settup logging
-	setupLogging()
+    // Setup logging
+    setupLogging()
     config := parseFlags()
     inputFile := config.InputFile
     outputFile := config.OutputFile
     sortKeys := config.SortKeys
-    // check if input file exists
+    // Check if input file exists
     if _, err := os.Stat(inputFile); os.IsNotExist(err) {
         logError("Input file does not exist!")
         return
@@ -354,35 +374,35 @@ func main() {
     logInfo("Output file: %v", config.OutputFile)
     logInfo("Sort keys: %v", config.SortKeys)
 
-    // Dynamisch berekenen van de chunk size
+    // Dynamically calculate the chunk size
     averageLineSize := estimateAverageLineSize(inputFile)
     logInfo("Estimated average line size: %v", averageLineSize)
     chunkSize := calculateChunkSize(averageLineSize)
     logInfo("Calculated chunk size: %d", chunkSize)
 
     if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-        logError("Inputbestand bestaat niet!")
+        logError("Input file does not exist!")
         return
     }
 
-    // Maak een tijdelijke directory aan
+    // Create a temporary directory
     tempDir, err := os.MkdirTemp("", "sort_chunks")
     if err != nil {
         logError("Error creating temp directory: %v", err)
         return
     }
-    // Defer zorgt ervoor dat de functie wordt uitgevoerd na het verlaten van de huidige functie
-    defer os.RemoveAll(tempDir) // Verwijder de tijdelijke directory na afloop
-    println("Tijdelijke directory:", tempDir)
+    // Defer ensures that the function is executed after the current function exits
+    defer os.RemoveAll(tempDir) // Remove the temporary directory after completion
+    println("Temporary directory:", tempDir)
 
     chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
     if err != nil {
         logError("Error splitting file: %v", err)
         return
     }
-    logInfo("Aantal chunk bestanden: %v", len(chunkFiles))
+    logInfo("Number of chunk files: %v", len(chunkFiles))
 
-    err = mergeChunks(outputFile, chunkFiles, sortKeys)
+    err = mergeChunks(outputFile, chunkFiles, sortKeys, tempDir)
     if err != nil {
         logError("Error merging chunks: %v", err)
     }

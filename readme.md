@@ -3,6 +3,7 @@
 ## Use
 
 -input -output -sortkey
+ go run . -input=test_data_m.txt -output=sorted_m.txt -sortkey=0,4,true,false -sortkey=5,10,false,true -sortkey=15,10,false,false
 
 ```go
 SortKey {
@@ -15,7 +16,7 @@ SortKey {
 
 ## Build
 
-### Downlaod modules
+### Download modules
 
 go mod tidy  # Zorgt ervoor dat alle modules correct worden opgehaald
 go mod download  # Download alle modules naar de Go cache
