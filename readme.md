@@ -3,7 +3,7 @@
 ## Use
 
 -input -output -sortkey
- go run . -input=test_data_m.txt -output=sorted_m.txt -sortkey=0,4,true,false -sortkey=5,10,false,true -sortkey=15,10,false,false
+ go run . --input test_data.txt --output sorted_test_data.txt --sortkey 0,2,true,true --sortkey 2,2,true,false --sortkey 4,10,false,true
 
 ```go
 SortKey {

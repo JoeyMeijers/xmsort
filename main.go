@@ -359,9 +359,11 @@ func estimateAverageLineSize(filename string) int {
 func main() {
 	setupLogging()
 	config := parseFlags()
-	if config.TestFile {
+
+	// Check if test file generation is requested
+	if config.TestFile > 0 {
 		logInfo("Generating test file")
-		testdata.GenerateTestFile(config.NumLines)
+		testdata.GenerateTestFile(config.TestFile)
 		return
 	}
 

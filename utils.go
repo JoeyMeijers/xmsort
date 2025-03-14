@@ -11,8 +11,7 @@ type Config struct {
 	InputFile  string
 	OutputFile string
 	SortKeys   SortKeySlice
-	TestFile   bool
-	NumLines   int
+	TestFile   int
 }
 
 // Configuratie voor de sortering
@@ -76,8 +75,7 @@ func parseFlags() Config {
 	cfg := Config{}
 
 	// Test file
-	flag.BoolVar(&cfg.TestFile, "testfile", false, "Generate test file")
-	flag.IntVar(&cfg.NumLines, "numlines", 0, "Number or lines")
+	flag.IntVar(&cfg.TestFile, "testfile", 0, "Number or lines for test file")
 	// main vars
 	flag.StringVar(&cfg.InputFile, "input", "", "Input file path (required)")
 	flag.StringVar(&cfg.OutputFile, "output", "", "Output file path (required)")
@@ -86,7 +84,7 @@ func parseFlags() Config {
 	flag.Parse()
 
 	// if testfile is true then return the config
-	if cfg.TestFile && cfg.NumLines > 0 {
+	if cfg.TestFile > 0 {
 		return cfg
 	}
 
