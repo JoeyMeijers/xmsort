@@ -17,6 +17,9 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+const MAX_CHUNK_SIZE = 1_000_000
+const MIN_CHUNK_SIZE = 5_000
+
 // sortLines sorts a batch of lines based on the provided sort keys.
 func sortLines(lines []string, keys []SortKey) {
 	sort.Slice(lines, func(i, j int) bool {
@@ -317,12 +320,12 @@ func calculateChunkSize(averageLineSize int) int {
 	logInfo("Reserved memory for chunks: %.2f MB", float64(reservedMemory)/1e6)
 
 	// Ensure the chunk size is not too large or too small
-	if chunkSize > 500_000 {
-		logWarning("Chunk size too large, reducing to 500,000 records per chunk")
-		chunkSize = 500_000
-	} else if chunkSize < 5_000 {
-		logWarning("Chunk size too small, increasing to 5,000 records per chunk to avoid overhead")
-		chunkSize = 5_000
+	if chunkSize > MAX_CHUNK_SIZE {
+		logWarning("Chunk size too large, reducing to %d records per chunk", MAX_CHUNK_SIZE)
+		chunkSize = MAX_CHUNK_SIZE
+	} else if chunkSize < MIN_CHUNK_SIZE {
+		logWarning("Chunk size too small, increasing to %d records per chunk to avoid overhead", MIN_CHUNK_SIZE)
+		chunkSize = MIN_CHUNK_SIZE
 	}
 
 	return chunkSize

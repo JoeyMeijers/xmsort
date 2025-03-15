@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const SPACEIDX = 10
 
 func GenerateTestFile(n int) {
 	f, err := os.Create("test_data.txt")
@@ -21,13 +22,13 @@ func GenerateTestFile(n int) {
 }
 
 func randomNumber() int {
-	rand.Seed(time.Now().UnixNano()) // Seed voor willekeurige getallen
-	return rand.Intn(10)
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // Create a new random generator
+	return r.Intn(10)
 }
 
 func randomString(length int) string {
 	nums := 4
-	rand.Seed(time.Now().UnixNano()) // Seed voor willekeurige getallen
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // Create a new random generator
 	b := make([]byte, length)
 	for i := range b {
 		if i < nums {
@@ -38,7 +39,11 @@ func randomString(length int) string {
 			b[i] = ' '
 			continue
 		}
-		b[i] = charset[rand.Intn(len(charset))]
+		if i % SPACEIDX == 0 {
+			b[i] = ' '
+			continue
+		}
+		b[i] = CHARSET[r.Intn(len(CHARSET))]
 	}
 	return string(b) + "\n"
 }
