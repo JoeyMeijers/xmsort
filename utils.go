@@ -11,6 +11,7 @@ type Config struct {
 	InputFile  string
 	OutputFile string
 	SortKeys   SortKeySlice
+	TestFile   int
 }
 
 // Configuratie voor de sortering
@@ -71,13 +72,22 @@ func (s *SortKeySlice) Set(value string) error {
 }
 
 func parseFlags() Config {
-    cfg := Config{}
+	cfg := Config{}
 
-    flag.StringVar(&cfg.InputFile, "input", "", "Input file path (required)")
-    flag.StringVar(&cfg.OutputFile, "output", "", "Output file path (required)")
-    flag.Var(&cfg.SortKeys, "sortkey", "Sort key (format: start,length,numeric,asc). Can be repeated.")
+	// Test file
+	flag.IntVar(&cfg.TestFile, "testfile", 0, "Number or lines for test file")
+	// main vars
+	flag.StringVar(&cfg.InputFile, "input", "", "Input file path (required)")
+	flag.StringVar(&cfg.OutputFile, "output", "", "Output file path (required)")
+	flag.Var(&cfg.SortKeys, "sortkey", "Sort key (format: start,length,numeric,asc). Can be repeated.")
 
-    flag.Parse()
+	flag.Parse()
+
+	// if testfile is true then return the config
+	if cfg.TestFile > 0 {
+		return cfg
+	}
+
 	// Validatie: controleer of verplichte argumenten zijn ingevuld
 	if cfg.InputFile == "" || cfg.OutputFile == "" {
 		fmt.Println("Error: --input and --output are required arguments.")
@@ -92,5 +102,5 @@ func parseFlags() Config {
 		os.Exit(1)
 	}
 
-    return cfg
+	return cfg
 }
