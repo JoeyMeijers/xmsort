@@ -365,7 +365,7 @@ func main() {
 
 	// Check if test file generation is requested
 	if config.TestFile > 0 {
-		logInfo("Generating test file")
+		logInfo("Generating test file with %d lines", config.TestFile)
 		testdata.GenerateTestFile(config.TestFile)
 		return
 	}
