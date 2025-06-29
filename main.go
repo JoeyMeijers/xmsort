@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"xmsort/testdata"
@@ -222,6 +223,25 @@ func (h *minHeap) Pop() interface{} {
 	return item
 }
 
+// getMaxOpenFiles returns a safe number of files that can be opened concurrently.
+func getMaxOpenFiles() int {
+	var rLimit syscall.Rlimit
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		// Fallback to a safe default if we can't get the limit
+		return 64
+	}
+	// Gebruik een ruime marge, bijvoorbeeld 80% van de limiet, maar nooit meer dan 512
+	max := int(rLimit.Cur * 8 / 10)
+	if max > 512 {
+		max = 512
+	}
+	if max < 16 {
+		max = 16
+	}
+	return max
+}
+
 // mergeChunks merges sorted chunks into a single output file.
 func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string) error {
 	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
@@ -235,7 +255,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 	minHeap := &minHeap{}
 	heap.Init(minHeap)
 
-	maxOpenFiles := 128 // Pas aan naar je systeemlimiet
+	maxOpenFiles := getMaxOpenFiles() // <-- Gebruik dynamisch limiet
 	readers := make([]*bufio.Reader, len(chunkFiles))
 	files := make([]*os.File, len(chunkFiles))
 	openSem := make(chan struct{}, maxOpenFiles)
