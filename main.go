@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -78,6 +79,9 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 	chunkChan := make(chan string, 10)
 	errChan := make(chan error, 1)
 
+	maxWorkers := runtime.NumCPU()
+	sem := make(chan struct{}, maxWorkers)
+
 	go func() {
 		for chunkFile := range chunkChan {
 			chunkFiles = append(chunkFiles, chunkFile)
@@ -90,23 +94,24 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if len(line) > 0 {
-					lines = append(lines, line)
+				// Voeg altijd de laatste regel toe, ook als deze leeg is
+				if len(line) > 0 || totalLines == 0 {
+					lines = append(lines, strings.TrimRight(line, "\r\n"))
 					totalLines++
 				}
 				break
 			}
 			return nil, err
 		}
-		line = strings.TrimSpace(line)
-		if len(line) > 0 {
-			lines = append(lines, line)
-			totalLines++
-		}
+		line = strings.TrimRight(line, "\r\n")
+		lines = append(lines, line)
+		totalLines++
 		if len(lines) >= chunkSize {
 			wg.Add(1)
+			sem <- struct{}{} // acquire
 			go func(lines []string, chunkIndex int) {
 				defer wg.Done()
+				defer func() { <-sem }() // release
 				sortLines(lines, sortKeys)
 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
@@ -122,8 +127,10 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 
 	if len(lines) > 0 {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			sortLines(lines, sortKeys)
 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
@@ -223,34 +230,60 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 		return err
 	}
 	defer out.Close()
-	writer := bufio.NewWriterSize(out, 16*1024*1024) // Vergroot de buffer
+	writer := bufio.NewWriterSize(out, 16*1024*1024)
 
 	minHeap := &minHeap{}
 	heap.Init(minHeap)
 
+	maxOpenFiles := 128 // Pas aan naar je systeemlimiet
 	readers := make([]*bufio.Reader, len(chunkFiles))
 	files := make([]*os.File, len(chunkFiles))
+	openSem := make(chan struct{}, maxOpenFiles)
+	var openWg sync.WaitGroup
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
 
 	totalLines := 0
 
-	// Open the first line of each chunk file
+	// Declare heapItemChan before goroutines use it
+	heapItemChan := make(chan heapItem, len(chunkFiles))
+
+	// Open de eerste regel van elk chunk-bestand, maar nooit meer dan maxOpenFiles tegelijk
 	for i := 0; i < len(chunkFiles); i++ {
-		f, err := os.Open(chunkFiles[i])
-		if err != nil {
-			return err
-		}
-		files[i] = f
-		readers[i] = bufio.NewReader(f)
-		line, err := readers[i].ReadString('\n')
-		if err != nil && err != io.EOF {
-			return err
-		}
-		line = strings.TrimSpace(line)
-		if len(line) > 0 {
-			heap.Push(minHeap, heapItem{line: line, fileID: i, sortKeys: sortKeys})
-		}
+		openWg.Add(1)
+		go func(i int) {
+			openSem <- struct{}{}
+			defer func() {
+				<-openSem
+				openWg.Done()
+			}()
+			f, err := os.Open(chunkFiles[i])
+			if err != nil {
+				errChan <- err
+				return
+			}
+			files[i] = f
+			readers[i] = bufio.NewReader(f)
+			line, err := readers[i].ReadString('\n')
+			if err != nil && err != io.EOF {
+				errChan <- err
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if err != io.EOF || len(line) > 0 {
+				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys}
+			}
+		}(i)
+	}
+
+	// Verzamel heapItems uit goroutines
+	go func() {
+		openWg.Wait()
+		close(heapItemChan)
+	}()
+
+	for item := range heapItemChan {
+		heap.Push(minHeap, item)
 	}
 
 	wg.Add(1)
@@ -269,8 +302,8 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 				errChan <- err
 				return
 			}
-			line = strings.TrimSpace(line)
-			if len(line) > 0 {
+			line = strings.TrimRight(line, "\r\n")
+			if err != io.EOF || len(line) > 0 {
 				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys})
 			} else if err == io.EOF {
 				files[item.fileID].Close()
@@ -392,11 +425,6 @@ func main() {
 	chunkSize := calculateChunkSize(averageLineSize)
 	logInfo("Calculated chunk size: %d", chunkSize)
 
-	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		logError("Input file does not exist!")
-		return
-	}
-
 	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "sort_chunks")
 	if err != nil {
@@ -405,7 +433,7 @@ func main() {
 	}
 	// Defer ensures that the function is executed after the current function exits
 	defer os.RemoveAll(tempDir) // Remove the temporary directory after completion
-	println("Temporary directory:", tempDir)
+	logInfo("Temporary directory: %s", tempDir)
 
 	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
 	if err != nil {
