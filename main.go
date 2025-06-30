@@ -374,10 +374,10 @@ func calculateChunkSize(averageLineSize int) int {
 
 	// Ensure the chunk size is not too large or too small
 	if chunkSize > MAX_CHUNK_SIZE {
-		logWarning("Chunk size too large, reducing to %d records per chunk", MAX_CHUNK_SIZE)
+		logWarning("Chunk size too large, reducing to %v records per chunk", MAX_CHUNK_SIZE)
 		chunkSize = MAX_CHUNK_SIZE
 	} else if chunkSize < MIN_CHUNK_SIZE {
-		logWarning("Chunk size too small, increasing to %d records per chunk to avoid overhead", MIN_CHUNK_SIZE)
+		logWarning("Chunk size too small, increasing to %v records per chunk to avoid overhead", MIN_CHUNK_SIZE)
 		chunkSize = MIN_CHUNK_SIZE
 	}
 
