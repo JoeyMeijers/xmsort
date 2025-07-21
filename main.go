@@ -13,7 +13,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
 	"xmsort/testdata"
 
 	"github.com/shirou/gopsutil/mem"
@@ -416,7 +415,6 @@ func main() {
 	setupLogging()
 	config := parseFlags()
 
-	// Check if test file generation is requested
 	if config.TestFile > 0 {
 		logInfo("Generating test file with %d lines", config.TestFile)
 		testdata.GenerateTestFile(config.TestFile)
@@ -427,7 +425,7 @@ func main() {
 	outputFile := config.OutputFile
 	sortKeys := config.SortKeys
 	delimiter := config.Delimiter
-	// Check if input file exists
+
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		logError("Input file does not exist!")
 		return
@@ -439,22 +437,19 @@ func main() {
 	logInfo("Input file: %v", config.InputFile)
 	logInfo("Output file: %v", config.OutputFile)
 	logInfo("Sort keys: %v", config.SortKeys)
+	logInfo("Delimiter: %v", delimiter)
 
-
-	// Dynamically calculate the chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
 	logInfo("Estimated average line size: %v", averageLineSize)
 	chunkSize := calculateChunkSize(averageLineSize)
 	logInfo("Calculated chunk size: %d", chunkSize)
 
-	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "sort_chunks")
 	if err != nil {
 		logError("Error creating temp directory: %v", err)
 		return
 	}
-	// Defer ensures that the function is executed after the current function exits
-	defer os.RemoveAll(tempDir) // Remove the temporary directory after completion
+	defer os.RemoveAll(tempDir)
 	logInfo("Temporary directory: %s", tempDir)
 
 	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir, delimiter)
@@ -464,9 +459,29 @@ func main() {
 	}
 	logInfo("Number of chunk files: %v", len(chunkFiles))
 
-	err = mergeChunks(outputFile, chunkFiles, sortKeys, tempDir, delimiter)
-	if err != nil {
-		logError("Error merging chunks: %v", err)
+	const MAX_MERGE_BATCH = 100
+	var intermediateFiles []string
+	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
+		end := i + MAX_MERGE_BATCH
+		if end > len(chunkFiles) {
+			end = len(chunkFiles)
+		}
+		intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, i/MAX_MERGE_BATCH)
+		logInfo("Merging batch %d (%d files)", i/MAX_MERGE_BATCH+1, end-i)
+		err := mergeChunks(intermediate, chunkFiles[i:end], sortKeys, tempDir, delimiter)
+		if err != nil {
+			logError("Error in batch merge: %v", err)
+			return
+		}
+		intermediateFiles = append(intermediateFiles, intermediate)
 	}
+
+	logInfo("Merging %d intermediate files into final output...", len(intermediateFiles))
+	err = mergeChunks(outputFile, intermediateFiles, sortKeys, tempDir, delimiter)
+	if err != nil {
+		logError("Error merging intermediate files: %v", err)
+		return
+	}
+
 	logInfo("Sorting completed in %v\n", time.Since(start))
 }
