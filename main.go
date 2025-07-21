@@ -19,14 +19,13 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
 
-func compareLines(a, b string, keys []SortKey) bool {
+func compareLines(a, b string, keys []SortKey, delimiter string) bool {
 	for _, key := range keys {
-		fieldA := extractField(a, key)
-		fieldB := extractField(b, key)
+		fieldA := extractField(a, key, delimiter)
+		fieldB := extractField(b, key, delimiter)
 
 		if key.Numeric {
 			numA, _ := strconv.ParseFloat(fieldA, 64)
@@ -50,14 +49,14 @@ func compareLines(a, b string, keys []SortKey) bool {
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
-func sortLines(lines []string, keys []SortKey) {
+func sortLines(lines []string, keys []SortKey, delimiter string) {
 	sort.Slice(lines, func(i, j int) bool {
-		return compareLines(lines[i], lines[j], keys)
+		return compareLines(lines[i], lines[j], keys, delimiter)
 	})
 }
 
 // extractField extracts a field from a line based on the provided sort key.
-func extractField(line string, key SortKey) string {
+func extractField(line string, key SortKey, delimiter string) string {
 	line = strings.TrimSpace(line) // Prevent extra newlines
 	if key.Start >= len(line) {
 		return ""
@@ -70,7 +69,7 @@ func extractField(line string, key SortKey) string {
 }
 
 // splitFile splits a large file into smaller chunks based on the chunk size and sort keys.
-func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string) ([]string, error) {
+func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -123,7 +122,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 			go func(lines []string, chunkIndex int) {
 				defer wg.Done()
 				defer func() { <-sem }() // release
-				sortLines(lines, sortKeys)
+				sortLines(lines, sortKeys, delimiter)
 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
 					// errChan <- err
@@ -143,7 +142,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sortLines(lines, sortKeys)
+			sortLines(lines, sortKeys, delimiter)
 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
 				// errChan <- err
@@ -187,9 +186,10 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 
 // heapItem represents an element in the heap used for merging chunks.
 type heapItem struct {
-	line     string
-	fileID   int
-	sortKeys []SortKey
+	line      string
+	fileID    int
+	sortKeys  []SortKey
+	delimiter string
 }
 
 // minHeap is a min-heap of heapItems.
@@ -198,7 +198,7 @@ type minHeap []heapItem
 func (h minHeap) Len() int { return len(h) }
 
 func (h minHeap) Less(i, j int) bool {
-	return compareLines(h[i].line, h[j].line, h[i].sortKeys)
+	return compareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter)
 }
 
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
@@ -235,7 +235,7 @@ func getMaxOpenFiles() int {
 }
 
 // mergeChunks merges sorted chunks into a single output file.
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string) error {
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
 	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
 	out, err := os.Create(tempOutputFile)
 	if err != nil {
@@ -291,7 +291,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}
 			line = strings.TrimRight(line, "\r\n")
 			if err != io.EOF || len(line) > 0 {
-				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys}
+				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys, delimiter: delimiter}
 			}
 		}(i)
 	}
@@ -326,7 +326,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}
 			line = strings.TrimRight(line, "\r\n")
 			if err != io.EOF || len(line) > 0 {
-				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys})
+				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys, delimiter: delimiter})
 			} else if err == io.EOF {
 				files[item.fileID].Close()
 			}
@@ -426,6 +426,7 @@ func main() {
 	inputFile := config.InputFile
 	outputFile := config.OutputFile
 	sortKeys := config.SortKeys
+	delimiter := config.Delimiter
 	// Check if input file exists
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		logError("Input file does not exist!")
@@ -456,14 +457,14 @@ func main() {
 	defer os.RemoveAll(tempDir) // Remove the temporary directory after completion
 	logInfo("Temporary directory: %s", tempDir)
 
-	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
+	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir, delimiter)
 	if err != nil {
 		logError("Error splitting file: %v", err)
 		return
 	}
 	logInfo("Number of chunk files: %v", len(chunkFiles))
 
-	err = mergeChunks(outputFile, chunkFiles, sortKeys, tempDir)
+	err = mergeChunks(outputFile, chunkFiles, sortKeys, tempDir, delimiter)
 	if err != nil {
 		logError("Error merging chunks: %v", err)
 	}
