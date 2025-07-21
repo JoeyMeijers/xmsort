@@ -19,6 +19,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
 
@@ -76,13 +77,18 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 	}
 	defer file.Close()
 
+	var (
+		errOnce sync.Once
+		exitErr error
+	)
+
 	var chunkFiles []string
 	reader := bufio.NewReader(file)
 	var lines []string
 	chunkIndex := 0
 	var wg sync.WaitGroup
 	chunkChan := make(chan string, 10)
-	errChan := make(chan error, 1)
+	// errChan := make(chan error, 1)
 
 	maxWorkers := runtime.NumCPU()
 	sem := make(chan struct{}, maxWorkers)
@@ -120,7 +126,8 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 				sortLines(lines, sortKeys)
 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
-					errChan <- err
+					// errChan <- err
+					errOnce.Do(func() { exitErr = err })
 					return
 				}
 				chunkChan <- chunkFile
@@ -139,7 +146,8 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 			sortLines(lines, sortKeys)
 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
-				errChan <- err
+				// errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			chunkChan <- chunkFile
@@ -149,10 +157,8 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 	wg.Wait()
 	close(chunkChan)
 
-	select {
-	case err := <-errChan:
-		return nil, err
-	default:
+	if exitErr != nil {
+		return nil, exitErr
 	}
 
 	logInfo("Total lines read: %d", totalLines)
@@ -236,6 +242,12 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 		return err
 	}
 	defer out.Close()
+
+	var (
+		errOnce sync.Once
+		exitErr error
+	)
+
 	writer := bufio.NewWriterSize(out, 16*1024*1024)
 
 	minHeap := &minHeap{}
@@ -247,7 +259,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 	openSem := make(chan struct{}, maxOpenFiles)
 	var openWg sync.WaitGroup
 	var wg sync.WaitGroup
-	errChan := make(chan error, 1)
+	// errChan := make(chan error, 1)
 
 	totalLines := 0
 
@@ -265,14 +277,16 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}()
 			f, err := os.Open(chunkFiles[i])
 			if err != nil {
-				errChan <- err
+				// errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			files[i] = f
 			readers[i] = bufio.NewReader(f)
 			line, err := readers[i].ReadString('\n')
 			if err != nil && err != io.EOF {
-				errChan <- err
+				// errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			line = strings.TrimRight(line, "\r\n")
@@ -299,13 +313,15 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			item := heap.Pop(minHeap).(heapItem)
 			_, err := writer.WriteString(item.line + "\n")
 			if err != nil {
-				errChan <- err
+				// errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			totalLines++
 			line, err := readers[item.fileID].ReadString('\n')
 			if err != nil && err != io.EOF {
-				errChan <- err
+				// errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			line = strings.TrimRight(line, "\r\n")
@@ -320,10 +336,8 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 
 	wg.Wait()
 
-	select {
-	case err := <-errChan:
-		return err
-	default:
+	if exitErr != nil {
+		return exitErr
 	}
 
 	// Verwijder tijdelijke bestanden
@@ -425,10 +439,6 @@ func main() {
 	logInfo("Output file: %v", config.OutputFile)
 	logInfo("Sort keys: %v", config.SortKeys)
 
-	var (
-		errOnce sync.Once
-		exitErr error
-	)
 
 	// Dynamically calculate the chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
