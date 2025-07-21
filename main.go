@@ -15,6 +15,8 @@ import (
 	"time"
 	"xmsort/testdata"
 
+	"github.com/cheggaaa/pb/v3"
+
 	"github.com/shirou/gopsutil/mem"
 )
 
@@ -68,6 +70,100 @@ func extractField(line string, key SortKey, delimiter string) string {
 }
 
 // splitFile splits a large file into smaller chunks based on the chunk size and sort keys.
+// func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
+// 	file, err := os.Open(inputFile)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer file.Close()
+
+// 	var (
+// 		errOnce sync.Once
+// 		exitErr error
+// 	)
+
+// 	var chunkFiles []string
+// 	reader := bufio.NewReader(file)
+// 	var lines []string
+// 	chunkIndex := 0
+// 	var wg sync.WaitGroup
+// 	chunkChan := make(chan string, 10)
+// 	// errChan := make(chan error, 1)
+
+// 	maxWorkers := runtime.NumCPU()
+// 	sem := make(chan struct{}, maxWorkers)
+
+// 	go func() {
+// 		for chunkFile := range chunkChan {
+// 			chunkFiles = append(chunkFiles, chunkFile)
+// 		}
+// 	}()
+
+// 	totalLines := 0
+
+// 	for {
+// 		line, err := reader.ReadString('\n')
+// 		if err != nil {
+// 			if err == io.EOF {
+// 				// Voeg altijd de laatste regel toe, ook als deze leeg is
+// 				if len(line) > 0 || totalLines == 0 {
+// 					lines = append(lines, strings.TrimRight(line, "\r\n"))
+// 					totalLines++
+// 				}
+// 				break
+// 			}
+// 			return nil, err
+// 		}
+// 		line = strings.TrimRight(line, "\r\n")
+// 		lines = append(lines, line)
+// 		totalLines++
+// 		if len(lines) >= chunkSize {
+// 			wg.Add(1)
+// 			sem <- struct{}{} // acquire
+// 			go func(lines []string, chunkIndex int) {
+// 				defer wg.Done()
+// 				defer func() { <-sem }() // release
+// 				sortLines(lines, sortKeys, delimiter)
+// 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
+// 				if err != nil {
+// 					// errChan <- err
+// 					errOnce.Do(func() { exitErr = err })
+// 					return
+// 				}
+// 				chunkChan <- chunkFile
+// 			}(lines, chunkIndex)
+// 			lines = nil
+// 			chunkIndex++
+// 		}
+// 	}
+
+// 	if len(lines) > 0 {
+// 		wg.Add(1)
+// 		sem <- struct{}{}
+// 		go func(lines []string, chunkIndex int) {
+// 			defer wg.Done()
+// 			defer func() { <-sem }()
+// 			sortLines(lines, sortKeys, delimiter)
+// 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
+// 			if err != nil {
+// 				// errChan <- err
+// 				errOnce.Do(func() { exitErr = err })
+// 				return
+// 			}
+// 			chunkChan <- chunkFile
+// 		}(lines, chunkIndex)
+// 	}
+
+// 	wg.Wait()
+// 	close(chunkChan)
+
+// 	if exitErr != nil {
+// 		return nil, exitErr
+// 	}
+
+// 	logInfo("Total lines read: %d", totalLines)
+// 	return chunkFiles, nil
+// }
 func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
@@ -76,18 +172,16 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 	defer file.Close()
 
 	var (
-		errOnce sync.Once
-		exitErr error
+		errOnce    sync.Once
+		exitErr    error
+		chunkFiles []string
+		lines      []string
+		wg         sync.WaitGroup
 	)
 
-	var chunkFiles []string
 	reader := bufio.NewReader(file)
-	var lines []string
 	chunkIndex := 0
-	var wg sync.WaitGroup
 	chunkChan := make(chan string, 10)
-	// errChan := make(chan error, 1)
-
 	maxWorkers := runtime.NumCPU()
 	sem := make(chan struct{}, maxWorkers)
 
@@ -97,16 +191,25 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		}
 	}()
 
+	// Schat totaal aantal regels (op basis van bestandsgrootte)
+	fi, err := os.Stat(inputFile)
+	var totalLinesEstimate int
+	if err == nil {
+		totalLinesEstimate = int(fi.Size() / 80)
+	}
+	bar := pb.StartNew(totalLinesEstimate)
+	bar.SetWriter(os.Stdout)
+
 	totalLines := 0
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				// Voeg altijd de laatste regel toe, ook als deze leeg is
 				if len(line) > 0 || totalLines == 0 {
 					lines = append(lines, strings.TrimRight(line, "\r\n"))
 					totalLines++
+					bar.Increment()
 				}
 				break
 			}
@@ -115,16 +218,17 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		line = strings.TrimRight(line, "\r\n")
 		lines = append(lines, line)
 		totalLines++
+		bar.Increment()
+
 		if len(lines) >= chunkSize {
 			wg.Add(1)
-			sem <- struct{}{} // acquire
+			sem <- struct{}{}
 			go func(lines []string, chunkIndex int) {
 				defer wg.Done()
-				defer func() { <-sem }() // release
+				defer func() { <-sem }()
 				sortLines(lines, sortKeys, delimiter)
 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
-					// errChan <- err
 					errOnce.Do(func() { exitErr = err })
 					return
 				}
@@ -144,7 +248,6 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 			sortLines(lines, sortKeys, delimiter)
 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
-				// errChan <- err
 				errOnce.Do(func() { exitErr = err })
 				return
 			}
@@ -154,6 +257,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 
 	wg.Wait()
 	close(chunkChan)
+	bar.Finish()
 
 	if exitErr != nil {
 		return nil, exitErr
@@ -234,6 +338,128 @@ func getMaxOpenFiles() int {
 }
 
 // mergeChunks merges sorted chunks into a single output file.
+// func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
+// 	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
+// 	out, err := os.Create(tempOutputFile)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer out.Close()
+
+// 	var (
+// 		errOnce sync.Once
+// 		exitErr error
+// 	)
+
+// 	writer := bufio.NewWriterSize(out, 16*1024*1024)
+
+// 	minHeap := &minHeap{}
+// 	heap.Init(minHeap)
+
+// 	maxOpenFiles := getMaxOpenFiles() // <-- Gebruik dynamisch limiet
+// 	readers := make([]*bufio.Reader, len(chunkFiles))
+// 	files := make([]*os.File, len(chunkFiles))
+// 	openSem := make(chan struct{}, maxOpenFiles)
+// 	var openWg sync.WaitGroup
+// 	var wg sync.WaitGroup
+// 	// errChan := make(chan error, 1)
+
+// 	totalLines := 0
+
+// 	// Declare heapItemChan before goroutines use it
+// 	heapItemChan := make(chan heapItem, len(chunkFiles))
+
+// 	// Open de eerste regel van elk chunk-bestand, maar nooit meer dan maxOpenFiles tegelijk
+// 	for i := 0; i < len(chunkFiles); i++ {
+// 		openWg.Add(1)
+// 		go func(i int) {
+// 			openSem <- struct{}{}
+// 			defer func() {
+// 				<-openSem
+// 				openWg.Done()
+// 			}()
+// 			f, err := os.Open(chunkFiles[i])
+// 			if err != nil {
+// 				// errChan <- err
+// 				errOnce.Do(func() { exitErr = err })
+// 				return
+// 			}
+// 			files[i] = f
+// 			readers[i] = bufio.NewReader(f)
+// 			line, err := readers[i].ReadString('\n')
+// 			if err != nil && err != io.EOF {
+// 				// errChan <- err
+// 				errOnce.Do(func() { exitErr = err })
+// 				return
+// 			}
+// 			line = strings.TrimRight(line, "\r\n")
+// 			if err != io.EOF || len(line) > 0 {
+// 				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys, delimiter: delimiter}
+// 			}
+// 		}(i)
+// 	}
+
+// 	// Verzamel heapItems uit goroutines
+// 	go func() {
+// 		openWg.Wait()
+// 		close(heapItemChan)
+// 	}()
+
+// 	for item := range heapItemChan {
+// 		heap.Push(minHeap, item)
+// 	}
+
+// 	wg.Add(1)
+// 	go func() {
+// 		defer wg.Done()
+// 		for minHeap.Len() > 0 {
+// 			item := heap.Pop(minHeap).(heapItem)
+// 			_, err := writer.WriteString(item.line + "\n")
+// 			if err != nil {
+// 				// errChan <- err
+// 				errOnce.Do(func() { exitErr = err })
+// 				return
+// 			}
+// 			totalLines++
+// 			line, err := readers[item.fileID].ReadString('\n')
+// 			if err != nil && err != io.EOF {
+// 				// errChan <- err
+// 				errOnce.Do(func() { exitErr = err })
+// 				return
+// 			}
+// 			line = strings.TrimRight(line, "\r\n")
+// 			if err != io.EOF || len(line) > 0 {
+// 				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys, delimiter: delimiter})
+// 			} else if err == io.EOF {
+// 				files[item.fileID].Close()
+// 			}
+// 		}
+// 		writer.Flush()
+// 	}()
+
+// 	wg.Wait()
+
+// 	if exitErr != nil {
+// 		return exitErr
+// 	}
+
+// 	// Verwijder tijdelijke bestanden
+// 	for _, file := range chunkFiles {
+// 		os.Remove(file)
+// 	}
+
+// 	logInfo("Total lines written: %d", totalLines)
+
+// 	// Verplaats het tijdelijke output bestand naar de uiteindelijke locatie
+// 	out.Close()
+// 	err = os.Rename(tempOutputFile, outputFile)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }
+
 func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
 	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
 	out, err := os.Create(tempOutputFile)
@@ -252,20 +478,27 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 	minHeap := &minHeap{}
 	heap.Init(minHeap)
 
-	maxOpenFiles := getMaxOpenFiles() // <-- Gebruik dynamisch limiet
+	maxOpenFiles := getMaxOpenFiles()
 	readers := make([]*bufio.Reader, len(chunkFiles))
 	files := make([]*os.File, len(chunkFiles))
 	openSem := make(chan struct{}, maxOpenFiles)
 	var openWg sync.WaitGroup
 	var wg sync.WaitGroup
-	// errChan := make(chan error, 1)
 
-	totalLines := 0
+	// Schat totaalregels
+	var totalExpectedLines int
+	for _, path := range chunkFiles {
+		fi, err := os.Stat(path)
+		if err == nil {
+			totalExpectedLines += int(fi.Size() / 80) // ≈ 80 bytes per regel
+		}
+	}
 
-	// Declare heapItemChan before goroutines use it
+	bar := pb.StartNew(totalExpectedLines)
+	bar.SetWriter(os.Stdout)
+
 	heapItemChan := make(chan heapItem, len(chunkFiles))
 
-	// Open de eerste regel van elk chunk-bestand, maar nooit meer dan maxOpenFiles tegelijk
 	for i := 0; i < len(chunkFiles); i++ {
 		openWg.Add(1)
 		go func(i int) {
@@ -276,7 +509,6 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}()
 			f, err := os.Open(chunkFiles[i])
 			if err != nil {
-				// errChan <- err
 				errOnce.Do(func() { exitErr = err })
 				return
 			}
@@ -284,7 +516,6 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			readers[i] = bufio.NewReader(f)
 			line, err := readers[i].ReadString('\n')
 			if err != nil && err != io.EOF {
-				// errChan <- err
 				errOnce.Do(func() { exitErr = err })
 				return
 			}
@@ -295,7 +526,6 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 		}(i)
 	}
 
-	// Verzamel heapItems uit goroutines
 	go func() {
 		openWg.Wait()
 		close(heapItemChan)
@@ -312,14 +542,13 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			item := heap.Pop(minHeap).(heapItem)
 			_, err := writer.WriteString(item.line + "\n")
 			if err != nil {
-				// errChan <- err
 				errOnce.Do(func() { exitErr = err })
 				return
 			}
-			totalLines++
+			bar.Increment()
+
 			line, err := readers[item.fileID].ReadString('\n')
 			if err != nil && err != io.EOF {
-				// errChan <- err
 				errOnce.Do(func() { exitErr = err })
 				return
 			}
@@ -331,6 +560,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}
 		}
 		writer.Flush()
+		bar.Finish()
 	}()
 
 	wg.Wait()
@@ -339,21 +569,13 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 		return exitErr
 	}
 
-	// Verwijder tijdelijke bestanden
 	for _, file := range chunkFiles {
 		os.Remove(file)
 	}
 
-	logInfo("Total lines written: %d", totalLines)
+	logInfo("Output written to: %s", outputFile)
 
-	// Verplaats het tijdelijke output bestand naar de uiteindelijke locatie
-	out.Close()
-	err = os.Rename(tempOutputFile, outputFile)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.Rename(tempOutputFile, outputFile)
 }
 
 // calculateChunkSize calculates the chunk size based on the average line size and available memory.
