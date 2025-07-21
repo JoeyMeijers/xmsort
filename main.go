@@ -22,32 +22,36 @@ import (
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
 
+func compareLines(a, b string, keys []SortKey) bool {
+	for _, key := range keys {
+		fieldA := extractField(a, key)
+		fieldB := extractField(b, key)
+
+		if key.Numeric {
+			numA, _ := strconv.ParseFloat(fieldA, 64)
+			numB, _ := strconv.ParseFloat(fieldB, 64)
+			if numA != numB {
+				if key.Asc {
+					return numA < numB
+				}
+				return numA > numB
+			}
+		} else {
+			if fieldA != fieldB {
+				if key.Asc {
+					return fieldA < fieldB
+				}
+				return fieldA > fieldB
+			}
+		}
+	}
+	return false
+}
+
 // sortLines sorts a batch of lines based on the provided sort keys.
 func sortLines(lines []string, keys []SortKey) {
 	sort.Slice(lines, func(i, j int) bool {
-		for _, key := range keys {
-			fieldA := extractField(lines[i], key)
-			fieldB := extractField(lines[j], key)
-
-			if key.Numeric {
-				numA, _ := strconv.ParseFloat(fieldA, 64)
-				numB, _ := strconv.ParseFloat(fieldB, 64)
-				if numA != numB {
-					if key.Asc {
-						return numA < numB
-					}
-					return numA > numB
-				}
-			} else {
-				if fieldA != fieldB {
-					if key.Asc {
-						return fieldA < fieldB
-					}
-					return fieldA > fieldB
-				}
-			}
-		}
-		return false
+		return compareLines(lines[i], lines[j], keys)
 	})
 }
 
@@ -186,35 +190,17 @@ type heapItem struct {
 type minHeap []heapItem
 
 func (h minHeap) Len() int { return len(h) }
-func (h minHeap) Less(i, j int) bool {
-	for _, key := range h[i].sortKeys {
-		fieldA := extractField(h[i].line, key)
-		fieldB := extractField(h[j].line, key)
 
-		if key.Numeric {
-			numA, _ := strconv.ParseFloat(fieldA, 64)
-			numB, _ := strconv.ParseFloat(fieldB, 64)
-			if numA != numB {
-				if key.Asc {
-					return numA < numB
-				}
-				return numA > numB
-			}
-		} else {
-			if fieldA != fieldB {
-				if key.Asc {
-					return fieldA < fieldB
-				}
-				return fieldA > fieldB
-			}
-		}
-	}
-	return false
+func (h minHeap) Less(i, j int) bool {
+	return compareLines(h[i].line, h[j].line, h[i].sortKeys)
 }
+
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
 func (h *minHeap) Push(x interface{}) {
 	*h = append(*h, x.(heapItem))
 }
+
 func (h *minHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
@@ -438,6 +424,11 @@ func main() {
 	logInfo("Input file: %v", config.InputFile)
 	logInfo("Output file: %v", config.OutputFile)
 	logInfo("Sort keys: %v", config.SortKeys)
+
+	var (
+		errOnce sync.Once
+		exitErr error
+	)
 
 	// Dynamically calculate the chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
