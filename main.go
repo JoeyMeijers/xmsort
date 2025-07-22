@@ -500,9 +500,10 @@ func main() {
 		logError("Error splitting file: %v", err)
 		return
 	}
-	logInfo("Number of chunk files: %v", len(chunkFiles))
+	logInfo("Created %d chunk files", len(chunkFiles))
 
 	const MAX_MERGE_BATCH = 100
+	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
 	var intermediateFiles []string
 	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
 		end := i + MAX_MERGE_BATCH
@@ -510,7 +511,7 @@ func main() {
 			end = len(chunkFiles)
 		}
 		intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, i/MAX_MERGE_BATCH)
-		logInfo("Merging batch %d/%d (%d files)", i/MAX_MERGE_BATCH+1, (len(chunkFiles)+MAX_MERGE_BATCH-1)/MAX_MERGE_BATCH, end-i)
+		logInfo("Merging batch %d/%d (%d files)", i/MAX_MERGE_BATCH+1, totalBatches, end-i)
 		err := mergeChunks(intermediate, chunkFiles[i:end], sortKeys, tempDir, delimiter)
 		if err != nil {
 			logError("Error in batch merge: %v", err)
@@ -519,7 +520,7 @@ func main() {
 		intermediateFiles = append(intermediateFiles, intermediate)
 	}
 
-	logInfo("Merging %d intermediate files into final output...", len(intermediateFiles))
+	logInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
 	err = mergeChunks(outputFile, intermediateFiles, sortKeys, tempDir, delimiter)
 	if err != nil {
 		logError("Error merging intermediate files: %v", err)
