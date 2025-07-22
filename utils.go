@@ -7,19 +7,13 @@ import (
 	"strings"
 )
 
-type Config struct {
-	InputFile  string
-	OutputFile string
-	SortKeys   SortKeySlice
-	TestFile   int
-}
-
 // Configuratie voor de sortering
 type SortKey struct {
 	Start   int
 	Length  int
 	Numeric bool
 	Asc     bool
+	Field   int
 }
 
 // SortKeySlice is een custom flag.value voor het parsen van sorteerconfiguraties
@@ -44,7 +38,7 @@ func (s SortKey) String() string {
 	if s.Numeric {
 		typ = "numeric"
 	}
-	return fmt.Sprintf("start=%d, len=%d, %s, %s", s.Start, s.Length, typ, order)
+	return fmt.Sprintf("start=%d, len=%d, %s, %s, field=%d", s.Start, s.Length, typ, order, s.Field)
 }
 
 // Set wordt aangeroepen door flag.parse()
@@ -71,6 +65,37 @@ func (s *SortKeySlice) Set(value string) error {
 	return nil
 }
 
+// FieldKeySlice is een custom flag.value voor het parsen van keyfield-configuraties
+type FieldKeySlice []SortKey
+
+// String functie voor debugging
+func (f *FieldKeySlice) String() string {
+	keys := []string{}
+	for _, key := range *f {
+		keys = append(keys, key.String())
+	}
+	return strings.Join(keys, "; ")
+}
+
+// Set wordt aangeroepen door flag.parse()
+func (f *FieldKeySlice) Set(value string) error {
+	// Verwacht formaat: field,numeric,asc
+	parts := strings.Split(value, ",")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid keyfield format: %s, expected format: field,numeric,asc", value)
+	}
+	var key SortKey
+	_, err := fmt.Sscanf(parts[0], "%d", &key.Field)
+	if err != nil {
+		return fmt.Errorf("invalid field value: %s", parts[0])
+	}
+	key.Numeric = parts[1] == "true"
+	key.Asc = parts[2] == "true"
+
+	*f = append(*f, key)
+	return nil
+}
+
 func parseFlags() Config {
 	cfg := Config{}
 
@@ -80,6 +105,8 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.InputFile, "input", "", "Input file path (required)")
 	flag.StringVar(&cfg.OutputFile, "output", "", "Output file path (required)")
 	flag.Var(&cfg.SortKeys, "sortkey", "Sort key (format: start,length,numeric,asc). Can be repeated.")
+	flag.Var(&cfg.FieldSortKeys, "keyfield", "Field key (format: field,numeric,asc). Can be repeated.")
+	flag.StringVar(&cfg.Delimiter, "delimiter", "", "Delimiter for field parsing")
 
 	flag.Parse()
 
@@ -95,12 +122,31 @@ func parseFlags() Config {
 		os.Exit(1) // Stop het programma met een foutmelding
 	}
 
+	// Combineer FieldSortKeys met SortKeys
+	for _, fkey := range cfg.FieldSortKeys {
+		key := SortKey{
+			Field:   fkey.Field,
+			Numeric: fkey.Numeric,
+			Asc:     fkey.Asc,
+		}
+		cfg.SortKeys = append(cfg.SortKeys, key)
+	}
+
 	// Controleer of er ten minste één sorteersleutel is opgegeven
 	if len(cfg.SortKeys) == 0 {
-		fmt.Println("Error: At least one --sortkey must be provided.")
+		fmt.Println("Error: At least one --sortkey or --keyfield must be provided.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	return cfg
+}
+
+type Config struct {
+	InputFile     string
+	OutputFile    string
+	SortKeys     SortKeySlice
+	FieldSortKeys FieldKeySlice
+	Delimiter    string
+	TestFile     int
 }

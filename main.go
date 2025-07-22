@@ -13,8 +13,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
 	"xmsort/testdata"
+
+	"github.com/cheggaaa/pb/v3"
 
 	"github.com/shirou/gopsutil/mem"
 )
@@ -22,38 +23,88 @@ import (
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
 
-// sortLines sorts a batch of lines based on the provided sort keys.
-func sortLines(lines []string, keys []SortKey) {
-	sort.Slice(lines, func(i, j int) bool {
-		for _, key := range keys {
-			fieldA := extractField(lines[i], key)
-			fieldB := extractField(lines[j], key)
+// estimateLineCount estimates the number of lines in a file by sampling up to 200 lines.
+func estimateLineCount(filename string) int {
+	file, err := os.Open(filename)
+	if err != nil {
+		return 1000000 // fallback
+	}
+	defer file.Close()
 
-			if key.Numeric {
-				numA, _ := strconv.ParseFloat(fieldA, 64)
-				numB, _ := strconv.ParseFloat(fieldB, 64)
-				if numA != numB {
-					if key.Asc {
-						return numA < numB
-					}
-					return numA > numB
+	reader := bufio.NewReader(file)
+	var totalSize, lines int
+	for lines < 200 {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		totalSize += len(line)
+		lines++
+	}
+	if lines == 0 {
+		return 1000000
+	}
+	avg := float64(totalSize) / float64(lines)
+
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return 1000000
+	}
+
+	return int(float64(fi.Size()) / avg)
+}
+
+func compareLines(a, b string, keys []SortKey, delimiter string) bool {
+	for _, key := range keys {
+		fieldA := extractField(a, key, delimiter)
+		fieldB := extractField(b, key, delimiter)
+
+		if key.Numeric {
+			numA, _ := strconv.ParseFloat(fieldA, 64)
+			numB, _ := strconv.ParseFloat(fieldB, 64)
+			if numA != numB {
+				if key.Asc {
+					return numA < numB
 				}
-			} else {
-				if fieldA != fieldB {
-					if key.Asc {
-						return fieldA < fieldB
-					}
-					return fieldA > fieldB
+				return numA > numB
+			}
+		} else {
+			if fieldA != fieldB {
+				if key.Asc {
+					return fieldA < fieldB
 				}
+				return fieldA > fieldB
 			}
 		}
-		return false
+	}
+	return false
+}
+
+// sortLines sorts a batch of lines based on the provided sort keys.
+func sortLines(lines []string, keys []SortKey, delimiter string) {
+	sort.Slice(lines, func(i, j int) bool {
+		return compareLines(lines[i], lines[j], keys, delimiter)
 	})
 }
 
-// extractField extracts a field from a line based on the provided sort key.
-func extractField(line string, key SortKey) string {
-	line = strings.TrimSpace(line) // Prevent extra newlines
+// extractField extracts a field from a line based on the provided sort key and delimiter.
+// If delimiter is not empty, split the line and use the column as field.
+// Otherwise, fall back to fixed position (Start, Length).
+func extractField(line string, key SortKey, delimiter string) string {
+	line = strings.TrimSpace(line)
+	if delimiter != "" {
+		cols := strings.Split(line, delimiter)
+		// Interpret key.Start as the column index (0-based)
+		if key.Start >= len(cols) {
+			return ""
+		}
+		val := cols[key.Start]
+		if key.Length > 0 && key.Length < len(val) {
+			return val[:key.Length]
+		}
+		return val
+	}
+	// fallback: fixed position
 	if key.Start >= len(line) {
 		return ""
 	}
@@ -64,22 +115,24 @@ func extractField(line string, key SortKey) string {
 	return line[key.Start:end]
 }
 
-// splitFile splits a large file into smaller chunks based on the chunk size and sort keys.
-func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string) ([]string, error) {
+func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	var chunkFiles []string
-	reader := bufio.NewReader(file)
-	var lines []string
-	chunkIndex := 0
-	var wg sync.WaitGroup
-	chunkChan := make(chan string, 10)
-	errChan := make(chan error, 1)
+	var (
+		errOnce    sync.Once
+		exitErr    error
+		chunkFiles []string
+		lines      []string
+		wg         sync.WaitGroup
+	)
 
+	reader := bufio.NewReader(file)
+	chunkIndex := 0
+	chunkChan := make(chan string, 10)
 	maxWorkers := runtime.NumCPU()
 	sem := make(chan struct{}, maxWorkers)
 
@@ -89,16 +142,21 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		}
 	}()
 
+	// Schat totaal aantal regels met estimateLineCount
+	totalLinesEstimate := estimateLineCount(inputFile)
+	bar := pb.StartNew(totalLinesEstimate)
+	bar.SetWriter(os.Stdout)
+
 	totalLines := 0
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				// Voeg altijd de laatste regel toe, ook als deze leeg is
 				if len(line) > 0 || totalLines == 0 {
 					lines = append(lines, strings.TrimRight(line, "\r\n"))
 					totalLines++
+					bar.Increment()
 				}
 				break
 			}
@@ -107,16 +165,18 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		line = strings.TrimRight(line, "\r\n")
 		lines = append(lines, line)
 		totalLines++
+		bar.Increment()
+
 		if len(lines) >= chunkSize {
 			wg.Add(1)
-			sem <- struct{}{} // acquire
+			sem <- struct{}{}
 			go func(lines []string, chunkIndex int) {
 				defer wg.Done()
-				defer func() { <-sem }() // release
-				sortLines(lines, sortKeys)
+				defer func() { <-sem }()
+				sortLines(lines, sortKeys, delimiter)
 				chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 				if err != nil {
-					errChan <- err
+					errOnce.Do(func() { exitErr = err })
 					return
 				}
 				chunkChan <- chunkFile
@@ -132,10 +192,10 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sortLines(lines, sortKeys)
+			sortLines(lines, sortKeys, delimiter)
 			chunkFile, err := writeChunk(lines, chunkIndex, tempDir)
 			if err != nil {
-				errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			chunkChan <- chunkFile
@@ -144,11 +204,10 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 
 	wg.Wait()
 	close(chunkChan)
+	bar.Finish()
 
-	select {
-	case err := <-errChan:
-		return nil, err
-	default:
+	if exitErr != nil {
+		return nil, exitErr
 	}
 
 	logInfo("Total lines read: %d", totalLines)
@@ -177,44 +236,27 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 
 // heapItem represents an element in the heap used for merging chunks.
 type heapItem struct {
-	line     string
-	fileID   int
-	sortKeys []SortKey
+	line      string
+	fileID    int
+	sortKeys  []SortKey
+	delimiter string
 }
 
 // minHeap is a min-heap of heapItems.
 type minHeap []heapItem
 
 func (h minHeap) Len() int { return len(h) }
-func (h minHeap) Less(i, j int) bool {
-	for _, key := range h[i].sortKeys {
-		fieldA := extractField(h[i].line, key)
-		fieldB := extractField(h[j].line, key)
 
-		if key.Numeric {
-			numA, _ := strconv.ParseFloat(fieldA, 64)
-			numB, _ := strconv.ParseFloat(fieldB, 64)
-			if numA != numB {
-				if key.Asc {
-					return numA < numB
-				}
-				return numA > numB
-			}
-		} else {
-			if fieldA != fieldB {
-				if key.Asc {
-					return fieldA < fieldB
-				}
-				return fieldA > fieldB
-			}
-		}
-	}
-	return false
+func (h minHeap) Less(i, j int) bool {
+	return compareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter)
 }
+
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
 func (h *minHeap) Push(x interface{}) {
 	*h = append(*h, x.(heapItem))
 }
+
 func (h *minHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
@@ -242,33 +284,41 @@ func getMaxOpenFiles() int {
 	return max
 }
 
-// mergeChunks merges sorted chunks into a single output file.
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string) error {
-	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
-	out, err := os.Create(tempOutputFile)
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
+	out, err := os.Create(outputFile)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
+
+	var (
+		errOnce sync.Once
+		exitErr error
+	)
+
 	writer := bufio.NewWriterSize(out, 16*1024*1024)
 
 	minHeap := &minHeap{}
 	heap.Init(minHeap)
 
-	maxOpenFiles := getMaxOpenFiles() // <-- Gebruik dynamisch limiet
+	maxOpenFiles := getMaxOpenFiles()
 	readers := make([]*bufio.Reader, len(chunkFiles))
 	files := make([]*os.File, len(chunkFiles))
 	openSem := make(chan struct{}, maxOpenFiles)
 	var openWg sync.WaitGroup
 	var wg sync.WaitGroup
-	errChan := make(chan error, 1)
 
-	totalLines := 0
+	// Schat totaalregels
+	var totalExpectedLines int
+	for _, path := range chunkFiles {
+		totalExpectedLines += estimateLineCount(path)
+	}
 
-	// Declare heapItemChan before goroutines use it
+	bar := pb.StartNew(totalExpectedLines)
+	bar.SetWriter(os.Stdout)
+
 	heapItemChan := make(chan heapItem, len(chunkFiles))
 
-	// Open de eerste regel van elk chunk-bestand, maar nooit meer dan maxOpenFiles tegelijk
 	for i := 0; i < len(chunkFiles); i++ {
 		openWg.Add(1)
 		go func(i int) {
@@ -279,24 +329,23 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			}()
 			f, err := os.Open(chunkFiles[i])
 			if err != nil {
-				errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			files[i] = f
 			readers[i] = bufio.NewReader(f)
 			line, err := readers[i].ReadString('\n')
 			if err != nil && err != io.EOF {
-				errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			line = strings.TrimRight(line, "\r\n")
 			if err != io.EOF || len(line) > 0 {
-				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys}
+				heapItemChan <- heapItem{line: line, fileID: i, sortKeys: sortKeys, delimiter: delimiter}
 			}
 		}(i)
 	}
 
-	// Verzamel heapItems uit goroutines
 	go func() {
 		openWg.Wait()
 		close(heapItemChan)
@@ -313,46 +362,38 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 			item := heap.Pop(minHeap).(heapItem)
 			_, err := writer.WriteString(item.line + "\n")
 			if err != nil {
-				errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
-			totalLines++
+			bar.Increment()
+
 			line, err := readers[item.fileID].ReadString('\n')
 			if err != nil && err != io.EOF {
-				errChan <- err
+				errOnce.Do(func() { exitErr = err })
 				return
 			}
 			line = strings.TrimRight(line, "\r\n")
 			if err != io.EOF || len(line) > 0 {
-				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys})
+				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys, delimiter: delimiter})
 			} else if err == io.EOF {
 				files[item.fileID].Close()
 			}
 		}
 		writer.Flush()
+		bar.Finish()
 	}()
 
 	wg.Wait()
 
-	select {
-	case err := <-errChan:
-		return err
-	default:
+	if exitErr != nil {
+		return exitErr
 	}
 
-	// Verwijder tijdelijke bestanden
 	for _, file := range chunkFiles {
 		os.Remove(file)
 	}
 
-	logInfo("Total lines written: %d", totalLines)
-
-	// Verplaats het tijdelijke output bestand naar de uiteindelijke locatie
-	out.Close()
-	err = os.Rename(tempOutputFile, outputFile)
-	if err != nil {
-		return err
-	}
+	// logInfo("Output written to: %s", outputFile)
 
 	return nil
 }
@@ -374,10 +415,10 @@ func calculateChunkSize(averageLineSize int) int {
 
 	// Ensure the chunk size is not too large or too small
 	if chunkSize > MAX_CHUNK_SIZE {
-		logWarning("Chunk size too large, reducing to %d records per chunk", MAX_CHUNK_SIZE)
+		logWarning("Chunk size too large, reducing to %v records per chunk", MAX_CHUNK_SIZE)
 		chunkSize = MAX_CHUNK_SIZE
 	} else if chunkSize < MIN_CHUNK_SIZE {
-		logWarning("Chunk size too small, increasing to %d records per chunk to avoid overhead", MIN_CHUNK_SIZE)
+		logWarning("Chunk size too small, increasing to %v records per chunk to avoid overhead", MIN_CHUNK_SIZE)
 		chunkSize = MIN_CHUNK_SIZE
 	}
 
@@ -416,7 +457,6 @@ func main() {
 	setupLogging()
 	config := parseFlags()
 
-	// Check if test file generation is requested
 	if config.TestFile > 0 {
 		logInfo("Generating test file with %d lines", config.TestFile)
 		testdata.GenerateTestFile(config.TestFile)
@@ -426,7 +466,8 @@ func main() {
 	inputFile := config.InputFile
 	outputFile := config.OutputFile
 	sortKeys := config.SortKeys
-	// Check if input file exists
+	delimiter := config.Delimiter
+
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		logError("Input file does not exist!")
 		return
@@ -438,33 +479,83 @@ func main() {
 	logInfo("Input file: %v", config.InputFile)
 	logInfo("Output file: %v", config.OutputFile)
 	logInfo("Sort keys: %v", config.SortKeys)
+	logInfo("Delimiter: %v", delimiter)
 
-	// Dynamically calculate the chunk size
 	averageLineSize := estimateAverageLineSize(inputFile)
 	logInfo("Estimated average line size: %v", averageLineSize)
 	chunkSize := calculateChunkSize(averageLineSize)
 	logInfo("Calculated chunk size: %d", chunkSize)
 
-	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "sort_chunks")
 	if err != nil {
 		logError("Error creating temp directory: %v", err)
 		return
 	}
-	// Defer ensures that the function is executed after the current function exits
-	defer os.RemoveAll(tempDir) // Remove the temporary directory after completion
+	defer os.RemoveAll(tempDir)
 	logInfo("Temporary directory: %s", tempDir)
 
-	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir)
+	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir, delimiter)
 	if err != nil {
 		logError("Error splitting file: %v", err)
 		return
 	}
-	logInfo("Number of chunk files: %v", len(chunkFiles))
+	logInfo("Created %d chunk files", len(chunkFiles))
 
-	err = mergeChunks(outputFile, chunkFiles, sortKeys, tempDir)
-	if err != nil {
-		logError("Error merging chunks: %v", err)
+	const MAX_MERGE_BATCH = 100
+	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
+
+	var (
+		intermediateFiles []string
+		mergeWg           sync.WaitGroup
+		mergeErrOnce      sync.Once
+		mergeErr          error
+		mergeSem          = make(chan struct{}, runtime.NumCPU())
+		intermediateMu    sync.Mutex
+	)
+
+	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
+		end := i + MAX_MERGE_BATCH
+		if end > len(chunkFiles) {
+			end = len(chunkFiles)
+		}
+		mergeWg.Add(1)
+		mergeSem <- struct{}{}
+		go func(i, end, batch int) {
+			defer mergeWg.Done()
+			defer func() { <-mergeSem }()
+			intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, batch)
+			tmpFile := fmt.Sprintf("%s/intermediate_%d.tmp", tempDir, batch)
+			logInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
+			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, tempDir, delimiter)
+			if err == nil {
+				if _, statErr := os.Stat(tmpFile); statErr == nil {
+					err = os.Rename(tmpFile, intermediate)
+				} else {
+					err = fmt.Errorf("temp file missing before rename: %v", statErr)
+				}
+			}
+			if err != nil {
+				mergeErrOnce.Do(func() { mergeErr = err })
+				return
+			}
+			intermediateMu.Lock()
+			intermediateFiles = append(intermediateFiles, intermediate)
+			intermediateMu.Unlock()
+		}(i, end, i/MAX_MERGE_BATCH)
 	}
+	mergeWg.Wait()
+
+	if mergeErr != nil {
+		logError("Error in batch merge: %v", mergeErr)
+		return
+	}
+
+	logInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
+	err = mergeChunks(outputFile, intermediateFiles, sortKeys, tempDir, delimiter)
+	if err != nil {
+		logError("Error merging intermediate files: %v", err)
+		return
+	}
+
 	logInfo("Sorting completed in %v\n", time.Since(start))
 }

@@ -3,6 +3,7 @@ package testdata
 import (
 	"math/rand"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -19,42 +20,38 @@ func GenerateTestFile(n int) {
 	}
 	defer f.Close()
 
-	// Kanaal om gegenereerde regels te verzamelen
-	lines := make(chan string, 100)
+	numWorkers := runtime.NumCPU()
+	lines := make(chan string, 1000)
 	var wg sync.WaitGroup
 
-	// Start een goroutine voor schrijven naar bestand
+	// Writer goroutine
 	go func() {
 		for line := range lines {
 			f.WriteString(line)
 		}
 	}()
 
-	// Parallel genereren van regels
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
+	// Worker goroutines
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go func(seed int64) {
 			defer wg.Done()
-			lines <- randomString(N_CHARS)
-		}()
+			r := rand.New(rand.NewSource(time.Now().UnixNano() + seed))
+			for i := w; i < n; i += numWorkers {
+				lines <- randomStringWithRand(N_CHARS, r)
+			}
+		}(int64(w))
 	}
 
-	// Wacht tot alle regels gegenereerd zijn en sluit het kanaal
 	wg.Wait()
 	close(lines)
 }
 
-func randomNumber() int {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return r.Intn(10)
-}
-
-func randomString(length int) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+func randomStringWithRand(length int, r *rand.Rand) string {
 	b := make([]byte, length)
 	for i := range b {
 		if i < N_NUMS {
-			b[i] = byte(randomNumber() + '0')
+			b[i] = byte(r.Intn(10) + '0')
 			continue
 		}
 		if i == N_NUMS {
