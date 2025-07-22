@@ -23,6 +23,37 @@ import (
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
 
+// estimateLineCount estimates the number of lines in a file by sampling up to 200 lines.
+func estimateLineCount(filename string) int {
+	file, err := os.Open(filename)
+	if err != nil {
+		return 1000000 // fallback
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var totalSize, lines int
+	for lines < 200 {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		totalSize += len(line)
+		lines++
+	}
+	if lines == 0 {
+		return 1000000
+	}
+	avg := float64(totalSize) / float64(lines)
+
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return 1000000
+	}
+
+	return int(float64(fi.Size()) / avg)
+}
+
 func compareLines(a, b string, keys []SortKey, delimiter string) bool {
 	for _, key := range keys {
 		fieldA := extractField(a, key, delimiter)
@@ -56,9 +87,24 @@ func sortLines(lines []string, keys []SortKey, delimiter string) {
 	})
 }
 
-// extractField extracts a field from a line based on the provided sort key.
+// extractField extracts a field from a line based on the provided sort key and delimiter.
+// If delimiter is not empty, split the line and use the column as field.
+// Otherwise, fall back to fixed position (Start, Length).
 func extractField(line string, key SortKey, delimiter string) string {
-	line = strings.TrimSpace(line) // Prevent extra newlines
+	line = strings.TrimSpace(line)
+	if delimiter != "" {
+		cols := strings.Split(line, delimiter)
+		// Interpret key.Start as the column index (0-based)
+		if key.Start >= len(cols) {
+			return ""
+		}
+		val := cols[key.Start]
+		if key.Length > 0 && key.Length < len(val) {
+			return val[:key.Length]
+		}
+		return val
+	}
+	// fallback: fixed position
 	if key.Start >= len(line) {
 		return ""
 	}
@@ -191,12 +237,8 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		}
 	}()
 
-	// Schat totaal aantal regels (op basis van bestandsgrootte)
-	fi, err := os.Stat(inputFile)
-	var totalLinesEstimate int
-	if err == nil {
-		totalLinesEstimate = int(fi.Size() / 80)
-	}
+	// Schat totaal aantal regels met estimateLineCount
+	totalLinesEstimate := estimateLineCount(inputFile)
 	bar := pb.StartNew(totalLinesEstimate)
 	bar.SetWriter(os.Stdout)
 
@@ -488,10 +530,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 	// Schat totaalregels
 	var totalExpectedLines int
 	for _, path := range chunkFiles {
-		fi, err := os.Stat(path)
-		if err == nil {
-			totalExpectedLines += int(fi.Size() / 80) // ≈ 80 bytes per regel
-		}
+		totalExpectedLines += estimateLineCount(path)
 	}
 
 	bar := pb.StartNew(totalExpectedLines)
