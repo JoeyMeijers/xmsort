@@ -728,7 +728,7 @@ func main() {
 			end = len(chunkFiles)
 		}
 		intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, i/MAX_MERGE_BATCH)
-		logInfo("Merging batch %d (%d files)", i/MAX_MERGE_BATCH+1, end-i)
+		logInfo("Merging batch %d/%d (%d files)", i/MAX_MERGE_BATCH+1, (len(chunkFiles)+MAX_MERGE_BATCH-1)/MAX_MERGE_BATCH, end-i)
 		err := mergeChunks(intermediate, chunkFiles[i:end], sortKeys, tempDir, delimiter)
 		if err != nil {
 			logError("Error in batch merge: %v", err)
