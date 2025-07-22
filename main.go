@@ -285,8 +285,7 @@ func getMaxOpenFiles() int {
 }
 
 func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
-	tempOutputFile := fmt.Sprintf("%s/output.tmp", tempDir)
-	out, err := os.Create(tempOutputFile)
+	out, err := os.Create(outputFile)
 	if err != nil {
 		return err
 	}
@@ -394,9 +393,9 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tem
 		os.Remove(file)
 	}
 
-	logInfo("Output written to: %s", outputFile)
+	// logInfo("Output written to: %s", outputFile)
 
-	return os.Rename(tempOutputFile, outputFile)
+	return nil
 }
 
 // calculateChunkSize calculates the chunk size based on the average line size and available memory.
@@ -504,20 +503,51 @@ func main() {
 
 	const MAX_MERGE_BATCH = 100
 	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
-	var intermediateFiles []string
+
+	var (
+		intermediateFiles []string
+		mergeWg           sync.WaitGroup
+		mergeErrOnce      sync.Once
+		mergeErr          error
+		mergeSem          = make(chan struct{}, runtime.NumCPU())
+		intermediateMu    sync.Mutex
+	)
+
 	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
 		end := i + MAX_MERGE_BATCH
 		if end > len(chunkFiles) {
 			end = len(chunkFiles)
 		}
-		intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, i/MAX_MERGE_BATCH)
-		logInfo("Merging batch %d/%d (%d files)", i/MAX_MERGE_BATCH+1, totalBatches, end-i)
-		err := mergeChunks(intermediate, chunkFiles[i:end], sortKeys, tempDir, delimiter)
-		if err != nil {
-			logError("Error in batch merge: %v", err)
-			return
-		}
-		intermediateFiles = append(intermediateFiles, intermediate)
+		mergeWg.Add(1)
+		mergeSem <- struct{}{}
+		go func(i, end, batch int) {
+			defer mergeWg.Done()
+			defer func() { <-mergeSem }()
+			intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, batch)
+			tmpFile := fmt.Sprintf("%s/intermediate_%d.tmp", tempDir, batch)
+			logInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
+			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, tempDir, delimiter)
+			if err == nil {
+				if _, statErr := os.Stat(tmpFile); statErr == nil {
+					err = os.Rename(tmpFile, intermediate)
+				} else {
+					err = fmt.Errorf("temp file missing before rename: %v", statErr)
+				}
+			}
+			if err != nil {
+				mergeErrOnce.Do(func() { mergeErr = err })
+				return
+			}
+			intermediateMu.Lock()
+			intermediateFiles = append(intermediateFiles, intermediate)
+			intermediateMu.Unlock()
+		}(i, end, i/MAX_MERGE_BATCH)
+	}
+	mergeWg.Wait()
+
+	if mergeErr != nil {
+		logError("Error in batch merge: %v", mergeErr)
+		return
 	}
 
 	logInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
