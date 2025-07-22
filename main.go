@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"xmsort/testdata"
 
@@ -22,6 +22,7 @@ import (
 
 const MAX_CHUNK_SIZE = 1_000_000
 const MIN_CHUNK_SIZE = 5_000
+const MAX_OPEN_FILES = 128 // Safe limit for Windows and other platforms
 
 // estimateLineCount estimates the number of lines in a file by sampling up to 200 lines.
 func estimateLineCount(filename string) int {
@@ -216,7 +217,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 
 // writeChunk writes a chunk of lines to a file.
 func writeChunk(lines []string, index int, tempDir string) (string, error) {
-	filename := fmt.Sprintf("%s/chunk_%d.txt", tempDir, index)
+	filename := filepath.Join(tempDir, fmt.Sprintf("chunk_%d.txt", index))
 	file, err := os.Create(filename)
 	if err != nil {
 		return "", err
@@ -267,21 +268,7 @@ func (h *minHeap) Pop() interface{} {
 
 // getMaxOpenFiles returns a safe number of files that can be opened concurrently.
 func getMaxOpenFiles() int {
-	var rLimit syscall.Rlimit
-	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
-	if err != nil {
-		// Fallback to a safe default if we can't get the limit
-		return 64
-	}
-	// Gebruik een ruime marge, bijvoorbeeld 80% van de limiet, maar nooit meer dan 512
-	max := int(rLimit.Cur * 8 / 10)
-	if max > 512 {
-		max = 512
-	}
-	if max < 16 {
-		max = 16
-	}
-	return max
+	return MAX_OPEN_FILES
 }
 
 func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, delimiter string) error {
@@ -523,8 +510,8 @@ func main() {
 		go func(i, end, batch int) {
 			defer mergeWg.Done()
 			defer func() { <-mergeSem }()
-			intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, batch)
-			tmpFile := fmt.Sprintf("%s/intermediate_%d.tmp", tempDir, batch)
+			intermediate := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.txt", batch))
+			tmpFile := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.tmp", batch))
 			logInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
 			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, delimiter)
 			if err == nil {
