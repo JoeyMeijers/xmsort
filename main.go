@@ -284,7 +284,7 @@ func getMaxOpenFiles() int {
 	return max
 }
 
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, tempDir string, delimiter string) error {
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, delimiter string) error {
 	out, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -526,7 +526,7 @@ func main() {
 			intermediate := fmt.Sprintf("%s/intermediate_%d.txt", tempDir, batch)
 			tmpFile := fmt.Sprintf("%s/intermediate_%d.tmp", tempDir, batch)
 			logInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
-			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, tempDir, delimiter)
+			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, delimiter)
 			if err == nil {
 				if _, statErr := os.Stat(tmpFile); statErr == nil {
 					err = os.Rename(tmpFile, intermediate)
@@ -551,7 +551,7 @@ func main() {
 	}
 
 	logInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
-	err = mergeChunks(outputFile, intermediateFiles, sortKeys, tempDir, delimiter)
+	err = mergeChunks(outputFile, intermediateFiles, sortKeys, delimiter)
 	if err != nil {
 		logError("Error merging intermediate files: %v", err)
 		return
