@@ -2,10 +2,12 @@ module xmsort
 
 go 1.24.0
 
-require github.com/shirou/gopsutil v3.21.11+incompatible
+require (
+	github.com/shirou/gopsutil v3.21.11+incompatible
+	github.com/cheggaaa/pb/v3 v3.1.7
+)
 
 require (
-	github.com/cheggaaa/pb/v3 v3.1.7
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
