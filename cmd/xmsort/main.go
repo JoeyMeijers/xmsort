@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joeymeijers/xmsort/internal/testdata"
 	"github.com/joeymeijers/xmsort/internal/utils"
 
 	"github.com/cheggaaa/pb/v3"
@@ -443,12 +442,6 @@ func estimateAverageLineSize(filename string) int {
 func main() {
 	utils.SetupLogging()
 	config := utils.ParseFlags()
-
-	if config.TestFile > 0 {
-		utils.LogInfo("Generating test file with %d lines", config.TestFile)
-		testdata.GenerateTestFile(config.TestFile)
-		return
-	}
 
 	inputFile := config.InputFile
 	outputFile := config.OutputFile
