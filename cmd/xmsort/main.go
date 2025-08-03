@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joeymeijers/xmsort/internal/sorting"
 	"github.com/joeymeijers/xmsort/internal/utils"
 
 	"github.com/cheggaaa/pb/v3"
@@ -56,7 +57,7 @@ func estimateLineCount(filename string) int {
 	return int(float64(fi.Size()) / avg)
 }
 
-func compareLines(a, b string, keys []utils.SortKey, delimiter string) bool {
+func compareLines(a, b string, keys []sorting.SortKey, delimiter string) bool {
 	for _, key := range keys {
 		fieldA := extractField(a, key, delimiter)
 		fieldB := extractField(b, key, delimiter)
@@ -83,7 +84,7 @@ func compareLines(a, b string, keys []utils.SortKey, delimiter string) bool {
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
-func sortLines(lines []string, keys []utils.SortKey, delimiter string) {
+func sortLines(lines []string, keys []sorting.SortKey, delimiter string) {
 	sort.Slice(lines, func(i, j int) bool {
 		return compareLines(lines[i], lines[j], keys, delimiter)
 	})
@@ -92,7 +93,7 @@ func sortLines(lines []string, keys []utils.SortKey, delimiter string) {
 // extractField extracts a field from a line based on the provided sort key and delimiter.
 // If delimiter is not empty, split the line and use the column as field.
 // Otherwise, fall back to fixed position (Start, Length).
-func extractField(line string, key utils.SortKey, delimiter string) string {
+func extractField(line string, key sorting.SortKey, delimiter string) string {
 	line = strings.TrimSpace(line)
 	if delimiter != "" {
 		cols := strings.Split(line, delimiter)
@@ -114,7 +115,7 @@ func extractField(line string, key utils.SortKey, delimiter string) string {
 	return line[key.Start:end]
 }
 
-func splitFile(inputFile string, chunkSize int, sortKeys []utils.SortKey, tempDir string, delimiter string) ([]string, error) {
+func splitFile(inputFile string, chunkSize int, sortKeys []sorting.SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -237,7 +238,7 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 type heapItem struct {
 	line      string
 	fileID    int
-	sortKeys  []utils.SortKey
+	sortKeys  []sorting.SortKey
 	delimiter string
 }
 
@@ -269,7 +270,7 @@ func getMaxOpenFiles() int {
 	return MAX_OPEN_FILES
 }
 
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKey, delimiter string) error {
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []sorting.SortKey, delimiter string) error {
 	out, err := os.Create(outputFile)
 	if err != nil {
 		return err
