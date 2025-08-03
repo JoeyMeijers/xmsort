@@ -59,7 +59,7 @@ Multiple keys:
 Full example:
 
 ```
- go run . --input=test_data.txt --output=sorted_test_data.txt --sortkey 0,2,true,true --sortkey 2,2,true,false --sortkey 5,10,false,true --sortkey 15,10,false,false
+ go run ./cmd/xmsort --input=test_data.txt --output=sorted_test_data.txt --sortkey 0,2,true,true --sortkey 2,2,true,false --sortkey 5,10,false,true --sortkey 15,10,false,false
 ```
 
 Struct:
