@@ -32,7 +32,7 @@ func estimateLineCount(filename string) int {
 	if err != nil {
 		return 1000000 // fallback
 	}
-	defer file.Close()
+	defer utils.SafeClose(file)
 
 	reader := bufio.NewReader(file)
 	var totalSize, lines int
@@ -111,10 +111,7 @@ func extractField(line string, key utils.SortKey, delimiter string) string {
 	if key.Start >= len(line) {
 		return ""
 	}
-	end := key.Start + key.Length
-	if end > len(line) {
-		end = len(line)
-	}
+	end := min(key.Start+key.Length, len(line))
 	return line[key.Start:end]
 }
 
@@ -123,7 +120,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []utils.SortKey, tempDi
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer utils.SafeClose(file)
 
 	var (
 		errOnce    sync.Once
@@ -224,7 +221,7 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer utils.SafeClose(file)
 
 	writer := bufio.NewWriter(file)
 	for _, line := range lines {
@@ -233,7 +230,7 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 			return "", err
 		}
 	}
-	writer.Flush()
+	utils.SafeFlush(writer)
 	return filename, nil
 }
 
@@ -256,11 +253,11 @@ func (h minHeap) Less(i, j int) bool {
 
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
-func (h *minHeap) Push(x interface{}) {
+func (h *minHeap) Push(x any) {
 	*h = append(*h, x.(heapItem))
 }
 
-func (h *minHeap) Pop() interface{} {
+func (h *minHeap) Pop() any {
 	old := *h
 	n := len(old)
 	item := old[n-1]
@@ -278,7 +275,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKe
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer utils.SafeClose(out)
 
 	var (
 		errOnce sync.Once
@@ -308,7 +305,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKe
 
 	heapItemChan := make(chan heapItem, len(chunkFiles))
 
-	for i := 0; i < len(chunkFiles); i++ {
+	for i := range chunkFiles {
 		openWg.Add(1)
 		go func(i int) {
 			openSem <- struct{}{}
@@ -365,10 +362,11 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKe
 			if err != io.EOF || len(line) > 0 {
 				heap.Push(minHeap, heapItem{line: line, fileID: item.fileID, sortKeys: sortKeys, delimiter: delimiter})
 			} else if err == io.EOF {
-				files[item.fileID].Close()
+				utils.SafeClose(files[item.fileID])
+
 			}
 		}
-		writer.Flush()
+		utils.SafeFlush(writer)
 		bar.Finish()
 	}()
 
@@ -379,7 +377,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKe
 	}
 
 	for _, file := range chunkFiles {
-		os.Remove(file)
+		utils.SafeRemove(file)
 	}
 
 	// utils.LogInfo("Output written to: %s", outputFile)
@@ -420,7 +418,7 @@ func estimateAverageLineSize(filename string) int {
 	if err != nil {
 		return 0 // Fallback
 	}
-	defer file.Close()
+	defer utils.SafeClose(file)
 
 	reader := bufio.NewReader(file)
 	var totalSize int
@@ -480,7 +478,7 @@ func main() {
 		utils.LogError("Error creating temp directory: %v", err)
 		return
 	}
-	defer os.RemoveAll(tempDir)
+	defer utils.SafeRemoveAll(tempDir)
 	utils.LogInfo("Temporary directory: %s", tempDir)
 
 	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir, delimiter)
@@ -503,10 +501,7 @@ func main() {
 	)
 
 	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
-		end := i + MAX_MERGE_BATCH
-		if end > len(chunkFiles) {
-			end = len(chunkFiles)
-		}
+		end := min(i+MAX_MERGE_BATCH, len(chunkFiles))
 		mergeWg.Add(1)
 		mergeSem <- struct{}{}
 		go func(i, end, batch int) {
