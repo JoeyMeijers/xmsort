@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 
 var logger *log.Logger
 
-func setupLogging() {
+func SetupLogging() {
 	// Open het logbestand
 	logFile, err := os.OpenFile("log.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -22,18 +22,18 @@ func setupLogging() {
 	logger = log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile)
 }
 
-func logInfo(message string, args ...interface{}) {
+func LogInfo(message string, args ...any) {
 	logger.Println("INFO: " + fmt.Sprintf(message, args...))
 }
 
-func logWarning(message string, args ...interface{}) {
+func LogWarning(message string, args ...any) {
 	logger.Println("WARNING: " + fmt.Sprintf(message, args...))
 }
 
-func logError(message string, args ...interface{}) {
+func LogError(message string, args ...any) {
 	logger.Println("ERROR: " + fmt.Sprintf(message, args...))
 }
 
-func logDebug(message string, args ...interface{}) {
+func LogDebug(message string, args ...any) {
 	logger.Println("DEBUG: " + fmt.Sprintf(message, args...))
 }

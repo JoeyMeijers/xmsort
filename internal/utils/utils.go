@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"flag"
@@ -113,7 +113,7 @@ func (f *FieldKeySlice) Set(value string) error {
 	return nil
 }
 
-func parseFlags() Config {
+func ParseFlags() Config {
 	cfg := Config{}
 
 	// Test file

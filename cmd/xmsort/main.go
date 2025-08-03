@@ -14,7 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joeymeijers/xmsort/testdata"
+	"github.com/joeymeijers/xmsort/internal/testdata"
+	"github.com/joeymeijers/xmsort/internal/utils"
 
 	"github.com/cheggaaa/pb/v3"
 
@@ -56,7 +57,7 @@ func estimateLineCount(filename string) int {
 	return int(float64(fi.Size()) / avg)
 }
 
-func compareLines(a, b string, keys []SortKey, delimiter string) bool {
+func compareLines(a, b string, keys []utils.SortKey, delimiter string) bool {
 	for _, key := range keys {
 		fieldA := extractField(a, key, delimiter)
 		fieldB := extractField(b, key, delimiter)
@@ -83,7 +84,7 @@ func compareLines(a, b string, keys []SortKey, delimiter string) bool {
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
-func sortLines(lines []string, keys []SortKey, delimiter string) {
+func sortLines(lines []string, keys []utils.SortKey, delimiter string) {
 	sort.Slice(lines, func(i, j int) bool {
 		return compareLines(lines[i], lines[j], keys, delimiter)
 	})
@@ -92,7 +93,7 @@ func sortLines(lines []string, keys []SortKey, delimiter string) {
 // extractField extracts a field from a line based on the provided sort key and delimiter.
 // If delimiter is not empty, split the line and use the column as field.
 // Otherwise, fall back to fixed position (Start, Length).
-func extractField(line string, key SortKey, delimiter string) string {
+func extractField(line string, key utils.SortKey, delimiter string) string {
 	line = strings.TrimSpace(line)
 	if delimiter != "" {
 		cols := strings.Split(line, delimiter)
@@ -117,7 +118,7 @@ func extractField(line string, key SortKey, delimiter string) string {
 	return line[key.Start:end]
 }
 
-func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
+func splitFile(inputFile string, chunkSize int, sortKeys []utils.SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -212,7 +213,7 @@ func splitFile(inputFile string, chunkSize int, sortKeys []SortKey, tempDir stri
 		return nil, exitErr
 	}
 
-	logInfo("Total lines read: %d", totalLines)
+	utils.LogInfo("Total lines read: %d", totalLines)
 	return chunkFiles, nil
 }
 
@@ -240,7 +241,7 @@ func writeChunk(lines []string, index int, tempDir string) (string, error) {
 type heapItem struct {
 	line      string
 	fileID    int
-	sortKeys  []SortKey
+	sortKeys  []utils.SortKey
 	delimiter string
 }
 
@@ -272,7 +273,7 @@ func getMaxOpenFiles() int {
 	return MAX_OPEN_FILES
 }
 
-func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, delimiter string) error {
+func mergeChunks(outputFile string, chunkFiles []string, sortKeys []utils.SortKey, delimiter string) error {
 	out, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -381,7 +382,7 @@ func mergeChunks(outputFile string, chunkFiles []string, sortKeys []SortKey, del
 		os.Remove(file)
 	}
 
-	// logInfo("Output written to: %s", outputFile)
+	// utils.LogInfo("Output written to: %s", outputFile)
 
 	return nil
 }
@@ -399,14 +400,14 @@ func calculateChunkSize(averageLineSize int) int {
 	// Calculate the chunk size in number of lines
 	chunkSize := int(reservedMemory / uint64(averageLineSize))
 
-	logInfo("Reserved memory for chunks: %.2f MB", float64(reservedMemory)/1e6)
+	utils.LogInfo("Reserved memory for chunks: %.2f MB", float64(reservedMemory)/1e6)
 
 	// Ensure the chunk size is not too large or too small
 	if chunkSize > MAX_CHUNK_SIZE {
-		logWarning("Chunk size too large, reducing to %v records per chunk", MAX_CHUNK_SIZE)
+		utils.LogWarning("Chunk size too large, reducing to %v records per chunk", MAX_CHUNK_SIZE)
 		chunkSize = MAX_CHUNK_SIZE
 	} else if chunkSize < MIN_CHUNK_SIZE {
-		logWarning("Chunk size too small, increasing to %v records per chunk to avoid overhead", MIN_CHUNK_SIZE)
+		utils.LogWarning("Chunk size too small, increasing to %v records per chunk to avoid overhead", MIN_CHUNK_SIZE)
 		chunkSize = MIN_CHUNK_SIZE
 	}
 
@@ -442,11 +443,11 @@ func estimateAverageLineSize(filename string) int {
 
 // main is the entry point of the program.
 func main() {
-	setupLogging()
-	config := parseFlags()
+	utils.SetupLogging()
+	config := utils.ParseFlags()
 
 	if config.TestFile > 0 {
-		logInfo("Generating test file with %d lines", config.TestFile)
+		utils.LogInfo("Generating test file with %d lines", config.TestFile)
 		testdata.GenerateTestFile(config.TestFile)
 		return
 	}
@@ -457,37 +458,37 @@ func main() {
 	delimiter := config.Delimiter
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		logError("Input file does not exist!")
+		utils.LogError("Input file does not exist!")
 		return
 	}
 
 	start := time.Now()
-	logInfo("Go external sort")
-	logInfo("Start: %v", start)
-	logInfo("Input file: %v", config.InputFile)
-	logInfo("Output file: %v", config.OutputFile)
-	logInfo("Sort keys: %v", config.SortKeys)
-	logInfo("Delimiter: %v", delimiter)
+	utils.LogInfo("Go external sort")
+	utils.LogInfo("Start: %v", start)
+	utils.LogInfo("Input file: %v", config.InputFile)
+	utils.LogInfo("Output file: %v", config.OutputFile)
+	utils.LogInfo("Sort keys: %v", config.SortKeys)
+	utils.LogInfo("Delimiter: %v", delimiter)
 
 	averageLineSize := estimateAverageLineSize(inputFile)
-	logInfo("Estimated average line size: %v", averageLineSize)
+	utils.LogInfo("Estimated average line size: %v", averageLineSize)
 	chunkSize := calculateChunkSize(averageLineSize)
-	logInfo("Calculated chunk size: %d", chunkSize)
+	utils.LogInfo("Calculated chunk size: %d", chunkSize)
 
 	tempDir, err := os.MkdirTemp("", "sort_chunks")
 	if err != nil {
-		logError("Error creating temp directory: %v", err)
+		utils.LogError("Error creating temp directory: %v", err)
 		return
 	}
 	defer os.RemoveAll(tempDir)
-	logInfo("Temporary directory: %s", tempDir)
+	utils.LogInfo("Temporary directory: %s", tempDir)
 
 	chunkFiles, err := splitFile(inputFile, chunkSize, sortKeys, tempDir, delimiter)
 	if err != nil {
-		logError("Error splitting file: %v", err)
+		utils.LogError("Error splitting file: %v", err)
 		return
 	}
-	logInfo("Created %d chunk files", len(chunkFiles))
+	utils.LogInfo("Created %d chunk files", len(chunkFiles))
 
 	const MAX_MERGE_BATCH = 100
 	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
@@ -513,7 +514,7 @@ func main() {
 			defer func() { <-mergeSem }()
 			intermediate := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.txt", batch))
 			tmpFile := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.tmp", batch))
-			logInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
+			utils.LogInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
 			err := mergeChunks(tmpFile, chunkFiles[i:end], sortKeys, delimiter)
 			if err == nil {
 				if _, statErr := os.Stat(tmpFile); statErr == nil {
@@ -534,16 +535,16 @@ func main() {
 	mergeWg.Wait()
 
 	if mergeErr != nil {
-		logError("Error in batch merge: %v", mergeErr)
+		utils.LogError("Error in batch merge: %v", mergeErr)
 		return
 	}
 
-	logInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
+	utils.LogInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
 	err = mergeChunks(outputFile, intermediateFiles, sortKeys, delimiter)
 	if err != nil {
-		logError("Error merging intermediate files: %v", err)
+		utils.LogError("Error merging intermediate files: %v", err)
 		return
 	}
 
-	logInfo("Sorting completed in %v\n", time.Since(start))
+	utils.LogInfo("Sorting completed in %v\n", time.Since(start))
 }
