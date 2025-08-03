@@ -2,6 +2,17 @@
 
 ## Use
 
+```go
+type Config struct {
+	InputFile     string
+	OutputFile    string
+	SortKeys     SortKeySlice
+	FieldSortKeys FieldKeySlice
+	Delimiter    string
+	TestFile     int
+}
+```
+
 Generate test file
 go run . -testfile=10000
 
