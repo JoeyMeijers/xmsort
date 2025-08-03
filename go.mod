@@ -1,4 +1,4 @@
-module xmsort
+module github.com/joeymeijers/xmsort
 
 go 1.24.0
 

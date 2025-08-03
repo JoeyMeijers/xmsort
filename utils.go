@@ -7,13 +7,12 @@ import (
 	"strings"
 )
 
-// Configuratie voor de sortering
+// Configuratie voor de SortKey
 type SortKey struct {
 	Start   int
 	Length  int
 	Numeric bool
 	Asc     bool
-	Field   int
 }
 
 // SortKeySlice is een custom flag.value voor het parsen van sorteerconfiguraties
@@ -38,7 +37,7 @@ func (s SortKey) String() string {
 	if s.Numeric {
 		typ = "numeric"
 	}
-	return fmt.Sprintf("start=%d, len=%d, %s, %s, field=%d", s.Start, s.Length, typ, order, s.Field)
+	return fmt.Sprintf("start=%d, len=%d, %s, %s", s.Start, s.Length, typ, order)
 }
 
 // Set wordt aangeroepen door flag.parse()
@@ -66,7 +65,25 @@ func (s *SortKeySlice) Set(value string) error {
 }
 
 // FieldKeySlice is een custom flag.value voor het parsen van keyfield-configuraties
-type FieldKeySlice []SortKey
+type FieldKey struct {
+	Field   int
+	Numeric bool
+	Asc     bool
+}
+
+func (k FieldKey) String() string {
+	order := "asc"
+	if !k.Asc {
+		order = "desc"
+	}
+	typ := "ascii"
+	if k.Numeric {
+		typ = "numeric"
+	}
+	return fmt.Sprintf("field=%d, %s, %s", k.Field, typ, order)
+}
+
+type FieldKeySlice []FieldKey
 
 // String functie voor debugging
 func (f *FieldKeySlice) String() string {
@@ -84,7 +101,7 @@ func (f *FieldKeySlice) Set(value string) error {
 	if len(parts) != 3 {
 		return fmt.Errorf("invalid keyfield format: %s, expected format: field,numeric,asc", value)
 	}
-	var key SortKey
+	var key FieldKey
 	_, err := fmt.Sscanf(parts[0], "%d", &key.Field)
 	if err != nil {
 		return fmt.Errorf("invalid field value: %s", parts[0])
@@ -125,7 +142,7 @@ func parseFlags() Config {
 	// Combineer FieldSortKeys met SortKeys
 	for _, fkey := range cfg.FieldSortKeys {
 		key := SortKey{
-			Field:   fkey.Field,
+			Start:   fkey.Field,
 			Numeric: fkey.Numeric,
 			Asc:     fkey.Asc,
 		}
@@ -145,8 +162,8 @@ func parseFlags() Config {
 type Config struct {
 	InputFile     string
 	OutputFile    string
-	SortKeys     SortKeySlice
+	SortKeys      SortKeySlice
 	FieldSortKeys FieldKeySlice
-	Delimiter    string
-	TestFile     int
+	Delimiter     string
+	TestFile      int
 }

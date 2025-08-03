@@ -13,7 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"xmsort/testdata"
+
+	"github.com/joeymeijers/xmsort/testdata"
 
 	"github.com/cheggaaa/pb/v3"
 
