@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Configuratie voor de sortering
+// Configuratie voor de SortKey
 type SortKey struct {
 	Start   int
 	Length  int
