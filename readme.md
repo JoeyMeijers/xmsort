@@ -29,7 +29,6 @@ SortKey {
     Length  int
     Numeric bool
     Asc     bool
-    Field   int
 }
 ```
 
