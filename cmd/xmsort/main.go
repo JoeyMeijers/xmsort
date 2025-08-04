@@ -14,7 +14,8 @@ import (
 	"github.com/joeymeijers/xmsort/internal/utils"
 )
 
-// main is the entry point of the program.
+const MAX_MERGE_BATCH = 100
+
 func main() {
 	utils.SetupLogging()
 	config := config.ParseFlags()
@@ -57,7 +58,6 @@ func main() {
 	}
 	utils.LogInfo("Created %d chunk files", len(chunkFiles))
 
-	const MAX_MERGE_BATCH = 100
 	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
 
 	var (

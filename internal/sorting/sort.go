@@ -72,6 +72,11 @@ func ExtractField(line string, key SortKey, delimiter string) string {
 	return line[key.Start:end]
 }
 
+func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string) (string, error) {
+	SortLines(lines, sortKeys, delimiter)
+	return utils.WriteChunk(lines, chunkIndex, tempDir)
+}
+
 func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
@@ -99,12 +104,26 @@ func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempD
 		}
 	}()
 
-	// Schat totaal aantal regels met estimateLineCount
 	totalLinesEstimate := utils.EstimateLineCount(inputFile)
 	bar := pb.StartNew(totalLinesEstimate)
 	bar.SetWriter(os.Stdout)
 
 	totalLines := 0
+
+	flushChunk := func(lines []string, chunkIndex int) {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(lines []string, chunkIndex int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter)
+			if err != nil {
+				errOnce.Do(func() { exitErr = err })
+				return
+			}
+			chunkChan <- chunkFile
+		}(lines, chunkIndex)
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -125,38 +144,14 @@ func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempD
 		bar.Increment()
 
 		if len(lines) >= chunkSize {
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(lines []string, chunkIndex int) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				SortLines(lines, sortKeys, delimiter)
-				chunkFile, err := utils.WriteChunk(lines, chunkIndex, tempDir)
-				if err != nil {
-					errOnce.Do(func() { exitErr = err })
-					return
-				}
-				chunkChan <- chunkFile
-			}(lines, chunkIndex)
+			flushChunk(lines, chunkIndex)
 			lines = nil
 			chunkIndex++
 		}
 	}
 
 	if len(lines) > 0 {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(lines []string, chunkIndex int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			SortLines(lines, sortKeys, delimiter)
-			chunkFile, err := utils.WriteChunk(lines, chunkIndex, tempDir)
-			if err != nil {
-				errOnce.Do(func() { exitErr = err })
-				return
-			}
-			chunkChan <- chunkFile
-		}(lines, chunkIndex)
+		flushChunk(lines, chunkIndex)
 	}
 
 	wg.Wait()
