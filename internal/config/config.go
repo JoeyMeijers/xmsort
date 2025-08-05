@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
+var ExitFunc = os.Exit
+
 // Config houdt alle configopties bij
 type Config struct {
 	InputFile     string
@@ -40,13 +42,13 @@ func ParseFlags() Config {
 	if cfg.InputFile == "" || cfg.OutputFile == "" {
 		fmt.Println("Error: --input and --output are required arguments.")
 		flag.Usage()
-		os.Exit(1)
+		ExitFunc(1)
 	}
 
 	if len(cfg.SortKeys) == 0 {
 		fmt.Println("Error: At least one --sortkey or --keyfield must be provided.")
 		flag.Usage()
-		os.Exit(1)
+		ExitFunc(1)
 	}
 
 	return cfg
