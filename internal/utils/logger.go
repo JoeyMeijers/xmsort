@@ -37,3 +37,8 @@ func LogError(message string, args ...any) {
 func LogDebug(message string, args ...any) {
 	logger.Println("DEBUG: " + fmt.Sprintf(message, args...))
 }
+
+// For overiding the logging in tests
+func OverrideLogger(l *log.Logger) {
+	logger = l
+}
