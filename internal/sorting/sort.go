@@ -62,11 +62,16 @@ func ExtractField(line string, key SortKey, delimiter string) string {
 		if key.Length > 0 && key.Length < len(val) {
 			return val[:key.Length]
 		}
+
 		return val
 	}
 	// fallback: fixed position
 	if key.Start >= len(line) {
 		return ""
+	}
+	// When fixed-width:
+	if key.Length <= 0 {
+		return line[key.Start:]
 	}
 	end := min(key.Start+key.Length, len(line))
 	return line[key.Start:end]
