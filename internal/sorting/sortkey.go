@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// SortKey definieert een sorteerregel op basis van startpositie, lengte, type en volgorde.
 type SortKey struct {
 	Start   int
 	Length  int
@@ -25,7 +24,7 @@ func (s SortKey) String() string {
 	return fmt.Sprintf("start=%d, len=%d, %s, %s", s.Start, s.Length, typ, order)
 }
 
-// SortKeySlice voor meerdere SortKeys, implementeert flag.Value
+// SortKeySlice for multiple SortKeys, implements flag.Value
 type SortKeySlice []SortKey
 
 func (s *SortKeySlice) String() string {
@@ -60,7 +59,7 @@ func (s *SortKeySlice) Set(value string) error {
 	return nil
 }
 
-// FieldKey definieert een sorteersleutel op basis van veldindex ipv startpositie
+// FieldKey defines a sortkey based on fieldindex not startindex
 type FieldKey struct {
 	Field   int
 	Numeric bool
@@ -108,7 +107,7 @@ func (f *FieldKeySlice) Set(value string) error {
 	return nil
 }
 
-// Helper om FieldKeySlice om te zetten naar SortKeySlice
+// Helper to convert FieldKeySlice to  SortKeySlice
 func ConvertFieldKeysToSortKeys(fields FieldKeySlice) SortKeySlice {
 	var keys SortKeySlice
 	for _, fkey := range fields {

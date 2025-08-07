@@ -9,7 +9,6 @@ import (
 
 var ExitFunc = os.Exit
 
-// Config houdt alle configopties bij
 type Config struct {
 	InputFile     string
 	OutputFile    string
@@ -31,10 +30,10 @@ func ParseFlags() Config {
 
 	flag.Parse()
 
-	// Combineer FieldSortKeys naar SortKeys
+	// Combine fieldSortKyes to SortKeys
 	cfg.SortKeys = append(cfg.SortKeys, sorting.ConvertFieldKeysToSortKeys(cfg.FieldSortKeys)...)
 
-	// Validatie
+	// Validate
 	if cfg.TestFile > 0 {
 		return cfg
 	}
