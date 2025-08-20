@@ -73,3 +73,34 @@ func TestParseFlags_TestFileMode(t *testing.T) {
 		t.Errorf("expected TestFile=100, got %d", cfg.TestFile)
 	}
 }
+
+
+func TestParseXSSortParams(t *testing.T) {
+	params := `I=input.txt O=output.txt RL=122 RT=V TS=Y RD=N EN=Z TMP=/tmp MEM=256M s1=(e=1,l=9,g=numeric,v=a) s2=(e=23,l=30,g=ebcdic,v=d)`
+	cfg := config.ParseXSSortParams(params)
+
+	if cfg.InputFile != "input.txt" {
+		t.Errorf("expected input.txt, got %s", cfg.InputFile)
+	}
+	if cfg.OutputFile != "output.txt" {
+		t.Errorf("expected output.txt, got %s", cfg.OutputFile)
+	}
+	if cfg.RecordLength != 122 {
+		t.Errorf("expected RL=122, got %d", cfg.RecordLength)
+	}
+	if !cfg.TruncateSpaces {
+		t.Errorf("expected TS=Y -> true")
+	}
+	if cfg.RemoveDuplicates {
+		t.Errorf("expected RD=N -> false")
+	}
+	if len(cfg.SortKeys) != 2 {
+		t.Fatalf("expected 2 sort keys, got %d", len(cfg.SortKeys))
+	}
+	if cfg.SortKeys[0].Start != 1 || cfg.SortKeys[0].Length != 9 || !cfg.SortKeys[0].Asc {
+		t.Errorf("sortkey1 parsed wrong: %+v", cfg.SortKeys[0])
+	}
+	if cfg.SortKeys[1].Asc {
+		t.Errorf("sortkey2 should be descending")
+	}
+}

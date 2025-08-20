@@ -10,6 +10,7 @@ type SortKey struct {
 	Length  int
 	Numeric bool
 	Asc     bool
+	Collation string
 }
 
 func (s SortKey) String() string {

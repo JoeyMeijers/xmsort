@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,12 +19,17 @@ const MAX_MERGE_BATCH = 100
 
 func main() {
 	utils.SetupLogging()
-	config := config.ParseFlags()
+	var cfg config.Config
+	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "I=") || strings.HasPrefix(os.Args[1], "O=") || strings.HasPrefix(os.Args[1], "K=") || strings.HasPrefix(os.Args[1], "D=")) {
+		cfg = config.ParseXSSortParams(strings.Join(os.Args[1:], " "))
+	} else {
+		cfg = config.ParseFlags()
+	}
 
-	inputFile := config.InputFile
-	outputFile := config.OutputFile
-	sortKeys := config.SortKeys
-	delimiter := config.Delimiter
+	inputFile := cfg.InputFile
+	outputFile := cfg.OutputFile
+	sortKeys := cfg.SortKeys
+	delimiter := cfg.Delimiter
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exist!")
@@ -33,9 +39,9 @@ func main() {
 	start := time.Now()
 	utils.LogInfo("Go external sort")
 	utils.LogInfo("Start: %v", start)
-	utils.LogInfo("Input file: %v", config.InputFile)
-	utils.LogInfo("Output file: %v", config.OutputFile)
-	utils.LogInfo("Sort keys: %v", config.SortKeys)
+	utils.LogInfo("Input file: %v", cfg.InputFile)
+	utils.LogInfo("Output file: %v", cfg.OutputFile)
+	utils.LogInfo("Sort keys: %v", cfg.SortKeys)
 	utils.LogInfo("Delimiter: %v", delimiter)
 
 	averageLineSize := utils.EstimateAverageLineSize(inputFile)
