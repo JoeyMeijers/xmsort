@@ -3,8 +3,11 @@ package config
 import (
 	"flag"
 	"fmt"
-	"github.com/joeymeijers/xmsort/internal/sorting"
 	"os"
+	"regexp"
+	"strings"
+
+	"github.com/joeymeijers/xmsort/internal/sorting"
 )
 
 var ExitFunc = os.Exit
@@ -16,6 +19,15 @@ type Config struct {
 	FieldSortKeys sorting.FieldKeySlice
 	Delimiter     string
 	TestFile      int
+
+	// XsSort extra params
+	RecordLength     int    // RL=nn
+	RecordType       string // RT={V|F}
+	TruncateSpaces   bool   // TS={Y|N}
+	RemoveDuplicates bool   // RD={Y|N}
+	EmptyNumbers     string // EN={Z|E}
+	TempDir          string // TMP=...
+	Memory           string // MEM=...
 }
 
 func ParseFlags() Config {
@@ -48,6 +60,78 @@ func ParseFlags() Config {
 		fmt.Println("Error: At least one --sortkey or --keyfield must be provided.")
 		flag.Usage()
 		ExitFunc(1)
+	}
+
+	return cfg
+}
+
+func ParseXSSortParams(params string) Config {
+	cfg := Config{}
+
+	parts := strings.Fields(params)
+	sortKeyRegex := regexp.MustCompile(`s\d+=\((.*?)\)`)
+
+	for _, part := range parts {
+		switch {
+		case strings.HasPrefix(strings.ToUpper(part), "I="):
+			cfg.InputFile = strings.TrimPrefix(part, "I=")
+		case strings.HasPrefix(strings.ToUpper(part), "O="):
+			cfg.OutputFile = strings.TrimPrefix(part, "O=")
+		case strings.HasPrefix(strings.ToUpper(part), "RL="):
+			fmt.Sscanf(strings.TrimPrefix(part, "RL="), "%d", &cfg.RecordLength)
+		case strings.HasPrefix(strings.ToUpper(part), "RT="):
+			cfg.RecordType = strings.TrimPrefix(part, "RT=")
+		case strings.HasPrefix(strings.ToUpper(part), "TS="):
+			val := strings.TrimPrefix(part, "TS=")
+			cfg.TruncateSpaces = (strings.ToUpper(val) == "Y" || strings.ToUpper(val) == "YES")
+		case strings.HasPrefix(strings.ToUpper(part), "RD="):
+			val := strings.TrimPrefix(part, "RD=")
+			cfg.RemoveDuplicates = (strings.ToUpper(val) == "Y" || strings.ToUpper(val) == "YES")
+		case strings.HasPrefix(strings.ToUpper(part), "EN="):
+			cfg.EmptyNumbers = strings.TrimPrefix(part, "EN=") // ZERO/ERROR
+		case strings.HasPrefix(strings.ToUpper(part), "TMP=") ||
+			strings.HasPrefix(strings.ToUpper(part), "TEMPDIR="):
+			cfg.TempDir = strings.SplitN(part, "=", 2)[1]
+		case strings.HasPrefix(strings.ToUpper(part), "MEM="):
+			cfg.Memory = strings.TrimPrefix(part, "MEM=")
+
+		// Sorteersleutels
+		case sortKeyRegex.MatchString(strings.ToLower(part)):
+			m := sortKeyRegex.FindStringSubmatch(part)
+			if len(m) > 1 {
+				args := strings.Split(m[1], ",")
+				var start, length int
+				numeric := false
+				asc := true
+				for _, arg := range args {
+					kv := strings.SplitN(arg, "=", 2)
+					if len(kv) != 2 {
+						continue
+					}
+					key, val := strings.ToLower(strings.TrimSpace(kv[0])), strings.ToLower(strings.TrimSpace(kv[1]))
+					switch key {
+					case "e":
+						fmt.Sscanf(val, "%d", &start)
+					case "l":
+						fmt.Sscanf(val, "%d", &length)
+					case "g":
+						if val == "numeric" {
+							numeric = true
+						}
+					case "v":
+						if val == "d" {
+							asc = false
+						}
+					}
+				}
+				cfg.SortKeys = append(cfg.SortKeys, sorting.SortKey{
+					Start:   start,
+					Length:  length,
+					Numeric: numeric,
+					Asc:     asc,
+				})
+			}
+		}
 	}
 
 	return cfg
