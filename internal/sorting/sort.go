@@ -2,6 +2,7 @@ package sorting
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -58,41 +59,50 @@ func EBCDICToASCII(s string) string {
 	return string(b)
 }
 
-func CompareLines(a, b string, keys []SortKey, delimiter string, truncateSpaces bool) bool {
-	for _, key := range keys {
-		fieldA := ExtractField(a, key, delimiter, truncateSpaces)
-		fieldB := ExtractField(b, key, delimiter, truncateSpaces)
+func CompareLines(a, b string, keys []SortKey, delimiter string, truncateSpaces bool, emptyNumbers string) bool {
+    for _, key := range keys {
+        fieldA := ExtractField(a, key, delimiter, truncateSpaces)
+        fieldB := ExtractField(b, key, delimiter, truncateSpaces)
 
-		if key.Collation == "ebcdic" {
-			fieldA = EBCDICToASCII(fieldA)
-			fieldB = EBCDICToASCII(fieldB)
-		}
-
-		if key.Numeric {
-			numA, _ := strconv.ParseFloat(fieldA, 64)
-			numB, _ := strconv.ParseFloat(fieldB, 64)
-			if numA != numB {
-				if key.Asc {
-					return numA < numB
-				}
-				return numA > numB
-			}
-		} else {
-			if fieldA != fieldB {
-				if key.Asc {
-					return fieldA < fieldB
-				}
-				return fieldA > fieldB
-			}
-		}
-	}
-	return false
+        if key.Numeric {
+            if fieldA == "" || fieldB == "" {
+                if strings.ToUpper(emptyNumbers) == "ERROR" {
+                    panic(fmt.Sprintf("Empty numeric field encountered: '%s' vs '%s'", fieldA, fieldB))
+                } else {
+                    if fieldA == "" {
+                        fieldA = "0"
+                    }
+                    if fieldB == "" {
+                        fieldB = "0"
+                    }
+                }
+            }
+            numA, _ := strconv.ParseFloat(fieldA, 64)
+            numB, _ := strconv.ParseFloat(fieldB, 64)
+            if numA == numB {
+                continue
+            }
+            if key.Asc {
+                return numA < numB
+            }
+            return numA > numB
+        } else {
+            if fieldA == fieldB {
+                continue
+            }
+            if key.Asc {
+                return fieldA < fieldB
+            }
+            return fieldA > fieldB
+        }
+    }
+    return false
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
-func SortLines(lines []string, keys []SortKey, delimiter string, truncateSpaces bool) {
+func SortLines(lines []string, keys []SortKey, delimiter string, truncateSpaces bool, emptyNumbers string) {
 	sort.Slice(lines, func(i, j int) bool {
-		return CompareLines(lines[i], lines[j], keys, delimiter, truncateSpaces)
+		return CompareLines(lines[i], lines[j], keys, delimiter, truncateSpaces, emptyNumbers)
 	})
 }
 
@@ -128,15 +138,15 @@ func ExtractField(line string, key SortKey, delimiter string, truncateSpaces boo
 	return val
 }
 
-func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string, truncateSpaces bool, removeDuplicates bool) (string, error) {
-	SortLines(lines, sortKeys, delimiter, truncateSpaces)
+func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string, truncateSpaces bool, removeDuplicates bool, emptyNumbers string) (string, error) {
+	SortLines(lines, sortKeys, delimiter, truncateSpaces, emptyNumbers)
 	if removeDuplicates {
 		lines = utils.RemoveDuplicates(lines)
 	}
 	return utils.WriteChunk(lines, chunkIndex, tempDir)
 }
 
-func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool, removeDuplicates bool) ([]string, error) {
+func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool, removeDuplicates bool, emptyNumbers string) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -175,7 +185,7 @@ func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempD
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates)
+			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates, emptyNumbers)
 			if err != nil {
 				errOnce.Do(func() { exitErr = err })
 				return

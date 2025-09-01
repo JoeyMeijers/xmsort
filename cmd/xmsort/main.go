@@ -32,6 +32,7 @@ func main() {
 	delimiter := cfg.Delimiter
 	truncateSpaces := cfg.TruncateSpaces
 	removeDuplicates := cfg.RemoveDuplicates
+	emptyNumbers := cfg.EmptyNumbers
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exist!")
@@ -74,6 +75,7 @@ func main() {
 		delimiter,
 		truncateSpaces,
 		removeDuplicates,
+		emptyNumbers,
 		// cfg.RecordLength,   // <-- toegevoegd
 		// cfg.RecordType,     // <-- toegevoegd
 	)
