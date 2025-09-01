@@ -31,6 +31,7 @@ func main() {
 	sortKeys := cfg.SortKeys
 	delimiter := cfg.Delimiter
 	truncateSpaces := cfg.TruncateSpaces
+	removeDuplicates := cfg.RemoveDuplicates
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exist!")
@@ -72,6 +73,7 @@ func main() {
 		tempDir,
 		delimiter,
 		truncateSpaces,
+		removeDuplicates,
 		// cfg.RecordLength,   // <-- toegevoegd
 		// cfg.RecordType,     // <-- toegevoegd
 	)

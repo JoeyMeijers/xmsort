@@ -44,3 +44,16 @@ func EstimateLineCount(filename string) int {
 func GetMaxOpenFiles() int {
 	return MAX_OPEN_FILES
 }
+
+func RemoveDuplicates(lines []string) []string {
+    if len(lines) == 0 {
+        return lines
+    }
+    result := []string{lines[0]}
+    for i := 1; i < len(lines); i++ {
+        if lines[i] != lines[i-1] {
+            result = append(result, lines[i])
+        }
+    }
+    return result
+}

@@ -59,7 +59,7 @@ func TestProcessChunk(t *testing.T) {
 	keys := []sorting.SortKey{{Start: 0, Length: 0, Numeric: false, Asc: true}}
 
 	tmpDir := t.TempDir()
-	chunkFile, err := sorting.ProcessChunk(lines, 0, keys, tmpDir, "", false)
+	chunkFile, err := sorting.ProcessChunk(lines, 0, keys, tmpDir, "", false, true)
 	assert.NoError(t, err)
 	assert.FileExists(t, chunkFile)
 

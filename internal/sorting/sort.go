@@ -128,12 +128,15 @@ func ExtractField(line string, key SortKey, delimiter string, truncateSpaces boo
 	return val
 }
 
-func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string, truncateSpaces bool) (string, error) {
+func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string, truncateSpaces bool, removeDuplicates bool) (string, error) {
 	SortLines(lines, sortKeys, delimiter, truncateSpaces)
+	if removeDuplicates {
+		lines = utils.RemoveDuplicates(lines)
+	}
 	return utils.WriteChunk(lines, chunkIndex, tempDir)
 }
 
-func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool) ([]string, error) {
+func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool, removeDuplicates bool) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -172,7 +175,7 @@ func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempD
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces)
+			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates)
 			if err != nil {
 				errOnce.Do(func() { exitErr = err })
 				return
