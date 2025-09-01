@@ -33,6 +33,8 @@ func main() {
 	truncateSpaces := cfg.TruncateSpaces
 	removeDuplicates := cfg.RemoveDuplicates
 	emptyNumbers := cfg.EmptyNumbers
+	recordType := strings.ToUpper(cfg.RecordType)
+	recordLength := cfg.RecordLength
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exist!")
@@ -76,8 +78,8 @@ func main() {
 		truncateSpaces,
 		removeDuplicates,
 		emptyNumbers,
-		// cfg.RecordLength,   // <-- toegevoegd
-		// cfg.RecordType,     // <-- toegevoegd
+		recordLength,
+		recordType,
 	)
 	if err != nil {
 		utils.LogError("Error splitting file: %v", err)

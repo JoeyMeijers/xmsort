@@ -146,91 +146,128 @@ func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, d
 	return utils.WriteChunk(lines, chunkIndex, tempDir)
 }
 
-func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool, removeDuplicates bool, emptyNumbers string) ([]string, error) {
-	file, err := os.Open(inputFile)
-	if err != nil {
-		return nil, err
-	}
-	defer utils.SafeClose(file)
+func SplitFileAndSort(
+    inputFile string,
+    chunkSize int,
+    sortKeys []SortKey,
+    tempDir string,
+    delimiter string,
+    truncateSpaces bool,
+    removeDuplicates bool,
+    emptyNumbers string,
+    recordLength int,
+    recordType string,
+) ([]string, error) {
+    file, err := os.Open(inputFile)
+    if err != nil {
+        return nil, err
+    }
+    defer utils.SafeClose(file)
 
-	var (
-		errOnce    sync.Once
-		exitErr    error
-		chunkFiles []string
-		lines      []string
-		wg         sync.WaitGroup
-	)
+    var (
+        errOnce    sync.Once
+        exitErr    error
+        chunkFiles []string
+        lines      []string
+        wg         sync.WaitGroup
+    )
 
-	reader := bufio.NewReader(file)
-	chunkIndex := 0
-	chunkChan := make(chan string, 10)
-	maxWorkers := runtime.NumCPU()
-	sem := make(chan struct{}, maxWorkers)
+    chunkIndex := 0
+    chunkChan := make(chan string, 10)
+    maxWorkers := runtime.NumCPU()
+    sem := make(chan struct{}, maxWorkers)
 
-	go func() {
-		for chunkFile := range chunkChan {
-			chunkFiles = append(chunkFiles, chunkFile)
-		}
-	}()
+    go func() {
+        for chunkFile := range chunkChan {
+            chunkFiles = append(chunkFiles, chunkFile)
+        }
+    }()
 
-	totalLinesEstimate := utils.EstimateLineCount(inputFile)
-	bar := pb.StartNew(totalLinesEstimate)
-	bar.SetWriter(os.Stdout)
+    totalLinesEstimate := utils.EstimateLineCount(inputFile)
+    bar := pb.StartNew(totalLinesEstimate)
+    bar.SetWriter(os.Stdout)
 
-	totalLines := 0
+    totalLines := 0
 
-	flushChunk := func(lines []string, chunkIndex int) {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(lines []string, chunkIndex int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates, emptyNumbers)
-			if err != nil {
-				errOnce.Do(func() { exitErr = err })
-				return
-			}
-			chunkChan <- chunkFile
-		}(lines, chunkIndex)
-	}
+    flushChunk := func(lines []string, chunkIndex int) {
+        wg.Add(1)
+        sem <- struct{}{}
+        go func(lines []string, chunkIndex int) {
+            defer wg.Done()
+            defer func() { <-sem }()
+            chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates, emptyNumbers)
+            if err != nil {
+                errOnce.Do(func() { exitErr = err })
+                return
+            }
+            chunkChan <- chunkFile
+        }(lines, chunkIndex)
+    }
 
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				if len(line) > 0 || totalLines == 0 {
-					lines = append(lines, strings.TrimRight(line, "\r\n"))
-					totalLines++
-					bar.Increment()
-				}
-				break
-			}
-			return nil, err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		lines = append(lines, line)
-		totalLines++
-		bar.Increment()
+    if strings.ToUpper(recordType) == "F" && recordLength > 0 {
+        // Fixed-width records
+        buf := make([]byte, recordLength)
+        for {
+            n, err := file.Read(buf)
+            if n > 0 {
+                line := string(buf[:n])
+                lines = append(lines, strings.TrimRight(line, "\r\n"))
+                totalLines++
+                bar.Increment()
+                if len(lines) >= chunkSize {
+                    flushChunk(lines, chunkIndex)
+                    lines = nil
+                    chunkIndex++
+                }
+            }
+            if err == io.EOF {
+                break
+            }
+            if err != nil {
+                return nil, err
+            }
+        }
+    } else {
+        // Variable-length records (default)
+        reader := bufio.NewReader(file)
+        for {
+            line, err := reader.ReadString('\n')
+            if err != nil {
+                if err == io.EOF {
+                    if len(line) > 0 || totalLines == 0 {
+                        lines = append(lines, strings.TrimRight(line, "\r\n"))
+                        totalLines++
+                        bar.Increment()
+                    }
+                    break
+                }
+                return nil, err
+            }
+            line = strings.TrimRight(line, "\r\n")
+            lines = append(lines, line)
+            totalLines++
+            bar.Increment()
 
-		if len(lines) >= chunkSize {
-			flushChunk(lines, chunkIndex)
-			lines = nil
-			chunkIndex++
-		}
-	}
+            if len(lines) >= chunkSize {
+                flushChunk(lines, chunkIndex)
+                lines = nil
+                chunkIndex++
+            }
+        }
+    }
 
-	if len(lines) > 0 {
-		flushChunk(lines, chunkIndex)
-	}
+    if len(lines) > 0 {
+        flushChunk(lines, chunkIndex)
+    }
 
-	wg.Wait()
-	close(chunkChan)
-	bar.Finish()
+    wg.Wait()
+    close(chunkChan)
+    bar.Finish()
 
-	if exitErr != nil {
-		return nil, exitErr
-	}
+    if exitErr != nil {
+        return nil, exitErr
+    }
 
-	utils.LogInfo("Total lines read: %d", totalLines)
-	return chunkFiles, nil
+    utils.LogInfo("Total lines read: %d", totalLines)
+    return chunkFiles, nil
 }
