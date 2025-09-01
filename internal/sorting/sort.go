@@ -58,10 +58,10 @@ func EBCDICToASCII(s string) string {
 	return string(b)
 }
 
-func CompareLines(a, b string, keys []SortKey, delimiter string) bool {
+func CompareLines(a, b string, keys []SortKey, delimiter string, truncateSpaces bool) bool {
 	for _, key := range keys {
-		fieldA := ExtractField(a, key, delimiter)
-		fieldB := ExtractField(b, key, delimiter)
+		fieldA := ExtractField(a, key, delimiter, truncateSpaces)
+		fieldB := ExtractField(b, key, delimiter, truncateSpaces)
 
 		if key.Collation == "ebcdic" {
 			fieldA = EBCDICToASCII(fieldA)
@@ -90,48 +90,50 @@ func CompareLines(a, b string, keys []SortKey, delimiter string) bool {
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
-func SortLines(lines []string, keys []SortKey, delimiter string) {
+func SortLines(lines []string, keys []SortKey, delimiter string, truncateSpaces bool) {
 	sort.Slice(lines, func(i, j int) bool {
-		return CompareLines(lines[i], lines[j], keys, delimiter)
+		return CompareLines(lines[i], lines[j], keys, delimiter, truncateSpaces)
 	})
 }
 
 // extractField extracts a field from a line based on the provided sort key and delimiter.
 // If delimiter is not empty, split the line and use the column as field.
 // Otherwise, fall back to fixed position (Start, Length).
-func ExtractField(line string, key SortKey, delimiter string) string {
-	line = strings.TrimSpace(line)
+func ExtractField(line string, key SortKey, delimiter string, truncateSpaces bool) string {
+	line = strings.TrimRight(line, "\r\n")
+	var val string
 	if delimiter != "" {
 		cols := strings.Split(line, delimiter)
-		// Interpret key.Start as the column index (0-based)
 		if key.Start >= len(cols) {
 			return ""
 		}
-		val := cols[key.Start]
+		val = cols[key.Start]
 		if key.Length > 0 && key.Length < len(val) {
-			return val[:key.Length]
+			val = val[:key.Length]
 		}
-
-		return val
+	} else {
+		if key.Start >= len(line) {
+			return ""
+		}
+		if key.Length <= 0 {
+			val = line[key.Start:]
+		} else {
+			end := min(key.Start+key.Length, len(line))
+			val = line[key.Start:end]
+		}
 	}
-	// fallback: fixed position
-	if key.Start >= len(line) {
-		return ""
+	if truncateSpaces {
+		val = strings.TrimSpace(val)
 	}
-	// When fixed-width:
-	if key.Length <= 0 {
-		return line[key.Start:]
-	}
-	end := min(key.Start+key.Length, len(line))
-	return line[key.Start:end]
+	return val
 }
 
-func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string) (string, error) {
-	SortLines(lines, sortKeys, delimiter)
+func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, delimiter string, truncateSpaces bool) (string, error) {
+	SortLines(lines, sortKeys, delimiter, truncateSpaces)
 	return utils.WriteChunk(lines, chunkIndex, tempDir)
 }
 
-func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string) ([]string, error) {
+func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempDir string, delimiter string, truncateSpaces bool) ([]string, error) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
@@ -170,7 +172,7 @@ func SplitFileAndSort(inputFile string, chunkSize int, sortKeys []SortKey, tempD
 		go func(lines []string, chunkIndex int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter)
+			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces)
 			if err != nil {
 				errOnce.Do(func() { exitErr = err })
 				return

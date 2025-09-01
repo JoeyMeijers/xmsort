@@ -19,6 +19,7 @@ type heapItem struct {
 	fileID    int
 	sortKeys  []sorting.SortKey
 	delimiter string
+	truncateSpaces bool
 }
 
 // minHeap is a min-heap of heapItems.
@@ -27,7 +28,7 @@ type minHeap []heapItem
 func (h minHeap) Len() int { return len(h) }
 
 func (h minHeap) Less(i, j int) bool {
-	return sorting.CompareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter)
+	return sorting.CompareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter, h[i].truncateSpaces)
 }
 
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
