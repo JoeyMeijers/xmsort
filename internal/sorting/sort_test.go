@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/joeymeijers/xmsort/internal/sorting"
+	"github.com/joeymeijers/xmsort/internal/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -109,4 +110,25 @@ func TestExtractField_FixedWidth_StartOutOfBounds(t *testing.T) {
 	line := "short"
 	field := sorting.ExtractField(line, key, "", false)
 	assert.Equal(t, "", field)
+}
+
+func TestRemoveDuplicates(t *testing.T) {
+	lines := []string{
+		"apple",
+		"apple",
+		"banana",
+		"banana",
+		"banana",
+		"cherry",
+		"date",
+		"date",
+	}
+	expected := []string{
+		"apple",
+		"banana",
+		"cherry",
+		"date",
+	}
+	result := utils.RemoveDuplicates(lines)
+	assert.Equal(t, expected, result)
 }
