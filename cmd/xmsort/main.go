@@ -19,6 +19,13 @@ const MAX_MERGE_BATCH = 100
 
 func main() {
 	utils.SetupLogging()
+
+	if len(os.Args) == 1 {
+    // flag.Usage()           // gewone flags
+    utils.PrintXSSortUsage()     // extra voor XSSORT
+    os.Exit(1)
+	}
+
 	var cfg config.Config
 	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "I=") || strings.HasPrefix(os.Args[1], "O=") || strings.HasPrefix(os.Args[1], "K=") || strings.HasPrefix(os.Args[1], "D=")) {
 		cfg = config.ParseXSSortParams(strings.Join(os.Args[1:], " "))

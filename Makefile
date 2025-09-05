@@ -1,8 +1,10 @@
-TEST_RECORDS=25_000_000
+TEST_RECORDS=250_000_000
 
 generate:
 	go run ./cmd/genfile/ --records=$(TEST_RECORDS)
 
+build:
+	go build ./cmd/xmsort
 # run:
 # 	go run ./cmd/xmsort \
 # 		--input=test_data.txt \

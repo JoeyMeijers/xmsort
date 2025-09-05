@@ -125,10 +125,10 @@ func mergeHeapToOutput(
 	for _, item := range initialItems {
 		heap.Push(h, item)
 	}
-
+	newline := utils.GetNewline()
 	for h.Len() > 0 {
 		item := heap.Pop(h).(heapItem)
-		_, err := writer.WriteString(item.line + "\n")
+		_, err := writer.WriteString(item.line + newline)
 		if err != nil {
 			errOnce.Do(func() { exitErr = err })
 			break
