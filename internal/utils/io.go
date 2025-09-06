@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/shirou/gopsutil/mem"
 )
@@ -45,8 +46,9 @@ func WriteChunk(lines []string, index int, tempDir string) (string, error) {
 	defer SafeClose(file)
 
 	writer := bufio.NewWriter(file)
+	newline := GetNewline()
 	for _, line := range lines {
-		_, err := writer.WriteString(line + "\n")
+		_, err := writer.WriteString(line + newline)
 		if err != nil {
 			return "", err
 		}
@@ -107,4 +109,12 @@ func EstimateAverageLineSize(filename string) int {
 		return 0
 	}
 	return totalSize / count
+}
+
+// GetNewline returns platform-native newline string.
+func GetNewline() string {
+	if runtime.GOOS == "windows" {
+		return "\r\n"
+	}
+	return "\n"
 }

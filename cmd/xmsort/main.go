@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,12 +19,29 @@ const MAX_MERGE_BATCH = 100
 
 func main() {
 	utils.SetupLogging()
-	config := config.ParseFlags()
 
-	inputFile := config.InputFile
-	outputFile := config.OutputFile
-	sortKeys := config.SortKeys
-	delimiter := config.Delimiter
+	if len(os.Args) == 1 {
+    // flag.Usage()           // gewone flags
+    utils.PrintXSSortUsage()     // extra voor XSSORT
+    os.Exit(1)
+	}
+
+	var cfg config.Config
+	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "I=") || strings.HasPrefix(os.Args[1], "O=") || strings.HasPrefix(os.Args[1], "K=") || strings.HasPrefix(os.Args[1], "D=")) {
+		cfg = config.ParseXSSortParams(strings.Join(os.Args[1:], " "))
+	} else {
+		cfg = config.ParseFlags()
+	}
+
+	inputFile := cfg.InputFile
+	outputFile := cfg.OutputFile
+	sortKeys := cfg.SortKeys
+	delimiter := cfg.Delimiter
+	truncateSpaces := cfg.TruncateSpaces
+	removeDuplicates := cfg.RemoveDuplicates
+	emptyNumbers := cfg.EmptyNumbers
+	recordType := strings.ToUpper(cfg.RecordType)
+	recordLength := cfg.RecordLength
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exist!")
@@ -33,10 +51,17 @@ func main() {
 	start := time.Now()
 	utils.LogInfo("Go external sort")
 	utils.LogInfo("Start: %v", start)
-	utils.LogInfo("Input file: %v", config.InputFile)
-	utils.LogInfo("Output file: %v", config.OutputFile)
-	utils.LogInfo("Sort keys: %v", config.SortKeys)
+	utils.LogInfo("Input file: %v", cfg.InputFile)
+	utils.LogInfo("Output file: %v", cfg.OutputFile)
+	utils.LogInfo("Sort keys: %v", cfg.SortKeys)
 	utils.LogInfo("Delimiter: %v", delimiter)
+	utils.LogInfo("Record type: %v", cfg.RecordType)
+	utils.LogInfo("Record length: %v", cfg.RecordLength)
+	utils.LogInfo("Truncate spaces: %v", cfg.TruncateSpaces)
+	utils.LogInfo("Remove duplicates: %v", cfg.RemoveDuplicates)
+	utils.LogInfo("Empty numbers: %v", cfg.EmptyNumbers)
+	utils.LogInfo("Memory: %v", cfg.Memory)
+	utils.LogInfo("Temp dir (config): %v", cfg.TempDir)
 
 	averageLineSize := utils.EstimateAverageLineSize(inputFile)
 	utils.LogInfo("Estimated average line size: %v", averageLineSize)
@@ -51,7 +76,18 @@ func main() {
 	defer utils.SafeRemoveAll(tempDir)
 	utils.LogInfo("Temporary directory: %s", tempDir)
 
-	chunkFiles, err := sorting.SplitFileAndSort(inputFile, chunkSize, sortKeys, tempDir, delimiter)
+	chunkFiles, err := sorting.SplitFileAndSort(
+		inputFile,
+		chunkSize,
+		sortKeys,
+		tempDir,
+		delimiter,
+		truncateSpaces,
+		removeDuplicates,
+		emptyNumbers,
+		recordLength,
+		recordType,
+	)
 	if err != nil {
 		utils.LogError("Error splitting file: %v", err)
 		return

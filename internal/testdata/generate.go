@@ -1,12 +1,13 @@
 package testdata
 
 import (
-	"github.com/joeymeijers/xmsort/internal/utils"
 	"math/rand"
 	"os"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/joeymeijers/xmsort/internal/utils"
 )
 
 const CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -57,6 +58,7 @@ func GenerateTestFile(n int, outputPath string) {
 }
 
 func generateLine(r *rand.Rand) string {
+	newline := utils.GetNewline()
 	b := make([]byte, N_CHARS)
 	for i := range b {
 		switch {
@@ -68,5 +70,5 @@ func generateLine(r *rand.Rand) string {
 			b[i] = CHARSET[r.Intn(len(CHARSET))]
 		}
 	}
-	return string(b) + "\n"
+	return string(b) + newline
 }
