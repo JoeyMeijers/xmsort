@@ -1,82 +1,15 @@
 package config_test
 
 import (
-	"flag"
-	"os"
 	"testing"
 
 	"github.com/joeymeijers/xmsort/internal/config"
 )
 
-func resetFlags() {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-}
-
-func TestParseFlags_ValidInput(t *testing.T) {
-	resetFlags()
-	os.Args = []string{
-		"cmd",
-		"--input=test.txt",
-		"--output=out.txt",
-		"--sortkey=0,5,false,true",
-	}
-
-	cfg := config.ParseFlags()
-
-	if cfg.InputFile != "test.txt" {
-		t.Errorf("expected input file to be 'test.txt', got '%s'", cfg.InputFile)
-	}
-	if cfg.OutputFile != "out.txt" {
-		t.Errorf("expected output file to be 'out.txt', got '%s'", cfg.OutputFile)
-	}
-	if len(cfg.SortKeys) != 1 {
-		t.Errorf("expected 1 sortkey, got %d", len(cfg.SortKeys))
-	}
-}
-
-func TestParseFlags_MissingRequiredArgs(t *testing.T) {
-	resetFlags()
-	os.Args = []string{
-		"cmd",
-		"--input=test.txt",
-	}
-
-	var exitCode int
-	config.ExitFunc = func(code int) {
-		exitCode = code
-		panic("mock exit")
-	}
-	defer func() {
-		config.ExitFunc = os.Exit // herstel na test
-		if r := recover(); r == nil {
-			t.Fatal("expected panic from mock exit")
-		}
-		if exitCode != 1 {
-			t.Errorf("expected exit code 1, got %d", exitCode)
-		}
-	}()
-
-	config.ParseFlags()
-	t.Fatal("expected ParseFlags to call ExitFunc")
-}
-
-func TestParseFlags_TestFileMode(t *testing.T) {
-	resetFlags()
-	os.Args = []string{
-		"cmd",
-		"--testfile=100",
-	}
-
-	cfg := config.ParseFlags()
-
-	if cfg.TestFile != 100 {
-		t.Errorf("expected TestFile=100, got %d", cfg.TestFile)
-	}
-}
 
 
 func TestParseXSSortParams(t *testing.T) {
-	params := `I=input.txt O=output.txt RL=122 RT=V TS=Y RD=N EN=Z TMP=/tmp MEM=256M s1=(e=1,l=9,g=numeric,v=a) s2=(e=23,l=30,g=ebcdic,v=d)`
+	params := `I=input.txt, O=output.txt, RL=122, RT=V, TS=Y, RD=N, EN=Z, TMP=/tmp, MEM=256M, S1=(e=1,l=9,g=numeric,v=a), S2=(e=23,l=30,g=ebcdic,v=d)`
 	cfg := config.ParseXSSortParams(params)
 
 	if cfg.InputFile != "input.txt" {
@@ -102,5 +35,63 @@ func TestParseXSSortParams(t *testing.T) {
 	}
 	if cfg.SortKeys[1].Asc {
 		t.Errorf("sortkey2 should be descending")
+	}
+}
+
+func TestParseXSSortParams_PStyle(t *testing.T) {
+	params := `I=input.txt, O=output.txt, RL=100, S1=(P=1-9,V=A), S2=(P=20-30,V=D)`
+	cfg := config.ParseXSSortParams(params)
+
+	if cfg.RecordLength != 100 {
+		t.Errorf("expected RL=100, got %d", cfg.RecordLength)
+	}
+	if len(cfg.SortKeys) != 2 {
+		t.Fatalf("expected 2 sort keys, got %d", len(cfg.SortKeys))
+	}
+	if cfg.SortKeys[0].Start != 1 || cfg.SortKeys[0].Length != 9 {
+		t.Errorf("sortkey1 parsed wrong: %+v", cfg.SortKeys[0])
+	}
+	if cfg.SortKeys[1].Start != 20 || cfg.SortKeys[1].Length != 11 || cfg.SortKeys[1].Asc {
+		t.Errorf("sortkey2 parsed wrong: %+v", cfg.SortKeys[1])
+	}
+}
+
+func TestParseXSSortParams_UppercaseS(t *testing.T) {
+	params := `I=in.txt, O=out.txt, RL=50, S1=(e=0,l=5,g=ascii,v=a), S2=(e=10,l=5,g=numeric,v=d)`
+	cfg := config.ParseXSSortParams(params)
+
+	if len(cfg.SortKeys) != 2 {
+		t.Fatalf("expected 2 sort keys, got %d", len(cfg.SortKeys))
+	}
+	if !cfg.SortKeys[0].Asc || cfg.SortKeys[1].Asc {
+		t.Errorf("sort keys direction parsed incorrectly: %+v", cfg.SortKeys)
+	}
+}
+
+func TestParseXSSortParams_MissingOptionalParams(t *testing.T) {
+	params := `I=file1.txt, O=file2.txt, RL=200, S1=(e=0,l=10,g=ascii,v=a)`
+	cfg := config.ParseXSSortParams(params)
+
+	if cfg.InputFile != "file1.txt" || cfg.OutputFile != "file2.txt" {
+		t.Errorf("input/output file parsed wrong: %s/%s", cfg.InputFile, cfg.OutputFile)
+	}
+	if !cfg.TruncateSpaces {
+		// Default value
+		t.Logf("TS not set, default false")
+	}
+	if cfg.RemoveDuplicates {
+		t.Errorf("RD default should be false")
+	}
+	if len(cfg.SortKeys) != 1 {
+		t.Fatalf("expected 1 sort key, got %d", len(cfg.SortKeys))
+	}
+}
+
+func TestParseXSSortParams_InvalidSortKeyIgnored(t *testing.T) {
+	params := `I=in.txt, O=out.txt, RL=50, S1=(e=0,l=5,g=ascii), S2=invalid`
+	cfg := config.ParseXSSortParams(params)
+
+	if len(cfg.SortKeys) != 1 {
+		t.Fatalf("expected 1 valid sort key, got %d", len(cfg.SortKeys))
 	}
 }

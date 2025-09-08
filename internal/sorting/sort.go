@@ -15,7 +15,6 @@ import (
 	"github.com/joeymeijers/xmsort/internal/utils"
 )
 
-
 var ebcdicToAscii = [256]byte{
 	0x00, 0x01, 0x02, 0x03, 0x9c, 0x09, 0x86, 0x7f,
 	0x97, 0x8d, 0x8e, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -60,43 +59,43 @@ func EBCDICToASCII(s string) string {
 }
 
 func CompareLines(a, b string, keys []SortKey, delimiter string, truncateSpaces bool, emptyNumbers string) bool {
-    for _, key := range keys {
-        fieldA := ExtractField(a, key, delimiter, truncateSpaces)
-        fieldB := ExtractField(b, key, delimiter, truncateSpaces)
+	for _, key := range keys {
+		fieldA := ExtractField(a, key, delimiter, truncateSpaces)
+		fieldB := ExtractField(b, key, delimiter, truncateSpaces)
 
-        if key.Numeric {
-            if fieldA == "" || fieldB == "" {
-                if strings.ToUpper(emptyNumbers) == "ERROR" {
-                    panic(fmt.Sprintf("Empty numeric field encountered: '%s' vs '%s'", fieldA, fieldB))
-                } else {
-                    if fieldA == "" {
-                        fieldA = "0"
-                    }
-                    if fieldB == "" {
-                        fieldB = "0"
-                    }
-                }
-            }
-            numA, _ := strconv.ParseFloat(fieldA, 64)
-            numB, _ := strconv.ParseFloat(fieldB, 64)
-            if numA == numB {
-                continue
-            }
-            if key.Asc {
-                return numA < numB
-            }
-            return numA > numB
-        } else {
-            if fieldA == fieldB {
-                continue
-            }
-            if key.Asc {
-                return fieldA < fieldB
-            }
-            return fieldA > fieldB
-        }
-    }
-    return false
+		if key.Numeric {
+			if fieldA == "" || fieldB == "" {
+				if strings.ToUpper(emptyNumbers) == "ERROR" {
+					panic(fmt.Sprintf("Empty numeric field encountered: '%s' vs '%s'", fieldA, fieldB))
+				} else {
+					if fieldA == "" {
+						fieldA = "0"
+					}
+					if fieldB == "" {
+						fieldB = "0"
+					}
+				}
+			}
+			numA, _ := strconv.ParseFloat(fieldA, 64)
+			numB, _ := strconv.ParseFloat(fieldB, 64)
+			if numA == numB {
+				continue
+			}
+			if key.Asc {
+				return numA < numB
+			}
+			return numA > numB
+		} else {
+			if fieldA == fieldB {
+				continue
+			}
+			if key.Asc {
+				return fieldA < fieldB
+			}
+			return fieldA > fieldB
+		}
+	}
+	return false
 }
 
 // sortLines sorts a batch of lines based on the provided sort keys.
@@ -147,127 +146,127 @@ func ProcessChunk(lines []string, chunkIndex int, sortKeys []SortKey, tempDir, d
 }
 
 func SplitFileAndSort(
-    inputFile string,
-    chunkSize int,
-    sortKeys []SortKey,
-    tempDir string,
-    delimiter string,
-    truncateSpaces bool,
-    removeDuplicates bool,
-    emptyNumbers string,
-    recordLength int,
-    recordType string,
+	inputFile string,
+	chunkSize int,
+	sortKeys []SortKey,
+	tempDir string,
+	delimiter string,
+	truncateSpaces bool,
+	removeDuplicates bool,
+	emptyNumbers string,
+	recordLength int,
+	recordType string,
 ) ([]string, error) {
-    file, err := os.Open(inputFile)
-    if err != nil {
-        return nil, err
-    }
-    defer utils.SafeClose(file)
+	file, err := os.Open(inputFile)
+	if err != nil {
+		return nil, err
+	}
+	defer utils.SafeClose(file)
 
-    var (
-        errOnce    sync.Once
-        exitErr    error
-        chunkFiles []string
-        lines      []string
-        wg         sync.WaitGroup
-    )
+	var (
+		errOnce    sync.Once
+		exitErr    error
+		chunkFiles []string
+		lines      []string
+		wg         sync.WaitGroup
+	)
 
-    chunkIndex := 0
-    chunkChan := make(chan string, 10)
-    maxWorkers := runtime.NumCPU()
-    sem := make(chan struct{}, maxWorkers)
+	chunkIndex := 0
+	chunkChan := make(chan string, 10)
+	maxWorkers := runtime.NumCPU()
+	sem := make(chan struct{}, maxWorkers)
 
-    go func() {
-        for chunkFile := range chunkChan {
-            chunkFiles = append(chunkFiles, chunkFile)
-        }
-    }()
+	go func() {
+		for chunkFile := range chunkChan {
+			chunkFiles = append(chunkFiles, chunkFile)
+		}
+	}()
 
-    totalLinesEstimate := utils.EstimateLineCount(inputFile)
-    bar := pb.StartNew(totalLinesEstimate)
-    bar.SetWriter(os.Stdout)
+	totalLinesEstimate := utils.EstimateLineCount(inputFile)
+	bar := pb.StartNew(totalLinesEstimate)
+	bar.SetWriter(os.Stdout)
 
-    totalLines := 0
+	totalLines := 0
 
-    flushChunk := func(lines []string, chunkIndex int) {
-        wg.Add(1)
-        sem <- struct{}{}
-        go func(lines []string, chunkIndex int) {
-            defer wg.Done()
-            defer func() { <-sem }()
-            chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates, emptyNumbers)
-            if err != nil {
-                errOnce.Do(func() { exitErr = err })
-                return
-            }
-            chunkChan <- chunkFile
-        }(lines, chunkIndex)
-    }
+	flushChunk := func(lines []string, chunkIndex int) {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(lines []string, chunkIndex int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			chunkFile, err := ProcessChunk(lines, chunkIndex, sortKeys, tempDir, delimiter, truncateSpaces, removeDuplicates, emptyNumbers)
+			if err != nil {
+				errOnce.Do(func() { exitErr = err })
+				return
+			}
+			chunkChan <- chunkFile
+		}(lines, chunkIndex)
+	}
 
-    if strings.ToUpper(recordType) == "F" && recordLength > 0 {
-        // Fixed-width records
-        buf := make([]byte, recordLength)
-        for {
-            n, err := file.Read(buf)
-            if n > 0 {
-                line := string(buf[:n])
-                lines = append(lines, strings.TrimRight(line, "\r\n"))
-                totalLines++
-                bar.Increment()
-                if len(lines) >= chunkSize {
-                    flushChunk(lines, chunkIndex)
-                    lines = nil
-                    chunkIndex++
-                }
-            }
-            if err == io.EOF {
-                break
-            }
-            if err != nil {
-                return nil, err
-            }
-        }
-    } else {
-        // Variable-length records (default)
-        reader := bufio.NewReader(file)
-        for {
-            line, err := reader.ReadString('\n')
-            if err != nil {
-                if err == io.EOF {
-                    if len(line) > 0 || totalLines == 0 {
-                        lines = append(lines, strings.TrimRight(line, "\r\n"))
-                        totalLines++
-                        bar.Increment()
-                    }
-                    break
-                }
-                return nil, err
-            }
-            line = strings.TrimRight(line, "\r\n")
-            lines = append(lines, line)
-            totalLines++
-            bar.Increment()
+	if strings.ToUpper(recordType) == "F" && recordLength > 0 {
+		// Fixed-width records
+		buf := make([]byte, recordLength)
+		for {
+			n, err := file.Read(buf)
+			if n > 0 {
+				line := string(buf[:n])
+				lines = append(lines, strings.TrimRight(line, "\r\n"))
+				totalLines++
+				bar.Increment()
+				if len(lines) >= chunkSize {
+					flushChunk(lines, chunkIndex)
+					lines = nil
+					chunkIndex++
+				}
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Variable-length records (default)
+		reader := bufio.NewReader(file)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					if len(line) > 0 || totalLines == 0 {
+						lines = append(lines, strings.TrimRight(line, "\r\n"))
+						totalLines++
+						bar.Increment()
+					}
+					break
+				}
+				return nil, err
+			}
+			line = strings.TrimRight(line, "\r\n")
+			lines = append(lines, line)
+			totalLines++
+			bar.Increment()
 
-            if len(lines) >= chunkSize {
-                flushChunk(lines, chunkIndex)
-                lines = nil
-                chunkIndex++
-            }
-        }
-    }
+			if len(lines) >= chunkSize {
+				flushChunk(lines, chunkIndex)
+				lines = nil
+				chunkIndex++
+			}
+		}
+	}
 
-    if len(lines) > 0 {
-        flushChunk(lines, chunkIndex)
-    }
+	if len(lines) > 0 {
+		flushChunk(lines, chunkIndex)
+	}
 
-    wg.Wait()
-    close(chunkChan)
-    bar.Finish()
+	wg.Wait()
+	close(chunkChan)
+	bar.Finish()
 
-    if exitErr != nil {
-        return nil, exitErr
-    }
+	if exitErr != nil {
+		return nil, exitErr
+	}
 
-    utils.LogInfo("Total lines read: %d", totalLines)
-    return chunkFiles, nil
+	utils.LogInfo("Total lines read: %d", totalLines)
+	return chunkFiles, nil
 }
