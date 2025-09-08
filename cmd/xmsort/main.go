@@ -38,7 +38,7 @@ func main() {
 	recordLength := cfg.RecordLength
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		utils.LogError("Input file does not exist!")
+		utils.LogError("Input file does not exists: %s", inputFile)
 		return
 	}
 
