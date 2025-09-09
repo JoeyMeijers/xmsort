@@ -62,12 +62,13 @@ func TestMergeHeapToOutput(t *testing.T) {
 	var builder strings.Builder
 	writer := bufio.NewWriter(&builder)
 	bar := pb.New(3)
-	bar.Start()
-	err = mergeHeapToOutput(writer, readers, files, items, bar)
+	// batchSize instellen op 1000 voor de test
+	batchSize := 1000
+
+	err = mergeHeapToOutput(writer, readers, files, items, bar, []string{file1, file2}, batchSize)
 	assert.NoError(t, err)
 
 	assert.Contains(t, builder.String(), "apple")
 	assert.Contains(t, builder.String(), "banana")
 	assert.Contains(t, builder.String(), "carrot")
-
 }
