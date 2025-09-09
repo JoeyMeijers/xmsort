@@ -116,6 +116,8 @@ func mergeHeapToOutput(
 	files []*os.File,
 	initialItems []heapItem,
 	bar *pb.ProgressBar,
+	chunkFiles []string,
+	batchSize int,
 ) error {
 	var errOnce sync.Once
 	var exitErr error
@@ -126,6 +128,13 @@ func mergeHeapToOutput(
 		heap.Push(h, item)
 	}
 	newline := utils.GetNewline()
+
+	// Buffer per chunk om batch reads te doen
+	buffers := make([][]string, len(readers))
+	for i := range buffers {
+		buffers[i] = []string{}
+	}
+
 	for h.Len() > 0 {
 		item := heap.Pop(h).(heapItem)
 		_, err := writer.WriteString(item.line + newline)
@@ -135,22 +144,44 @@ func mergeHeapToOutput(
 		}
 		bar.Increment()
 
-		line, err := readers[item.fileID].ReadString('\n')
-		if err != nil && err != io.EOF {
-			errOnce.Do(func() { exitErr = err })
-			break
+		// Vul buffer als leeg
+		if len(buffers[item.fileID]) == 0 {
+			lines := []string{}
+			for i := 0; i < batchSize; i++ {
+				line, err := readers[item.fileID].ReadString('\n')
+				if err != nil && err != io.EOF {
+					errOnce.Do(func() { exitErr = err })
+					break
+				}
+				line = strings.TrimRight(line, "\r\n")
+				if err == io.EOF && len(line) == 0 {
+					break
+				}
+				lines = append(lines, line)
+				if err == io.EOF {
+					break
+				}
+			}
+			if len(lines) > 0 {
+				buffers[item.fileID] = lines
+			} else {
+				utils.SafeClose(files[item.fileID])
+				if chunkFiles != nil {
+					utils.SafeRemove(chunkFiles[item.fileID])
+				}
+				continue
+			}
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if err != io.EOF || len(line) > 0 {
-			heap.Push(h, heapItem{
-				line:      line,
-				fileID:    item.fileID,
-				sortKeys:  item.sortKeys,
-				delimiter: item.delimiter,
-			})
-		} else if err == io.EOF {
-			utils.SafeClose(files[item.fileID])
-		}
+
+		// Push volgende regel van buffer
+		nextLine := buffers[item.fileID][0]
+		buffers[item.fileID] = buffers[item.fileID][1:]
+		heap.Push(h, heapItem{
+			line:      nextLine,
+			fileID:    item.fileID,
+			sortKeys:  item.sortKeys,
+			delimiter: item.delimiter,
+		})
 	}
 
 	utils.SafeFlush(writer)
@@ -179,13 +210,10 @@ func MergeChunks(outputFile string, chunkFiles []string, sortKeys []sorting.Sort
 	}
 
 	writer := bufio.NewWriterSize(out, 16*1024*1024)
-	err = mergeHeapToOutput(writer, readers, files, initialItems, bar)
+	batchSize := 1000
+	err = mergeHeapToOutput(writer, readers, files, initialItems, bar, chunkFiles, batchSize)
 	if err != nil {
 		return err
-	}
-
-	for _, f := range chunkFiles {
-		utils.SafeRemove(f)
 	}
 
 	return nil
