@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 )
 
@@ -47,28 +46,15 @@ func GetMaxOpenFiles() int {
 }
 
 func RemoveDuplicates(lines []string) []string {
-    if len(lines) == 0 {
-        return lines
-    }
-    result := []string{lines[0]}
-    for i := 1; i < len(lines); i++ {
-        if lines[i] != lines[i-1] {
-            result = append(result, lines[i])
-        }
-    }
-    return result
+	if len(lines) == 0 {
+		return lines
+	}
+	result := []string{lines[0]}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != lines[i-1] {
+			result = append(result, lines[i])
+		}
+	}
+	return result
 }
 
-func PrintXSSortUsage() {
-    fmt.Println("XSSORT-style parameters:")
-    fmt.Println("  I=<file>      Input file")
-    fmt.Println("  O=<file>      Output file")
-    fmt.Println("  RL=<length>   Record length")
-    fmt.Println("  RT=<V|F>      Record type (Variable/Fixed)")
-    fmt.Println("  TS=<Y|N>      Truncate spaces")
-    fmt.Println("  RD=<Y|N>      Remove duplicates")
-    fmt.Println("  EN=<Z|E>      Empty numbers (Zero/Error)")
-    fmt.Println("  TMP=<dir>     Temp directory")
-    fmt.Println("  MEM=<size>    Sort memory (e.g. 512M)")
-    fmt.Println("  S1=(...)      Sort key definition")
-}

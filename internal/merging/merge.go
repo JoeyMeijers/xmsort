@@ -116,6 +116,7 @@ func mergeHeapToOutput(
 	files []*os.File,
 	initialItems []heapItem,
 	bar *pb.ProgressBar,
+	chunkFiles []string,
 ) error {
 	var errOnce sync.Once
 	var exitErr error
@@ -150,6 +151,7 @@ func mergeHeapToOutput(
 			})
 		} else if err == io.EOF {
 			utils.SafeClose(files[item.fileID])
+			utils.SafeRemove(chunkFiles[item.fileID]) // delete chunk immediately
 		}
 	}
 
@@ -179,13 +181,9 @@ func MergeChunks(outputFile string, chunkFiles []string, sortKeys []sorting.Sort
 	}
 
 	writer := bufio.NewWriterSize(out, 16*1024*1024)
-	err = mergeHeapToOutput(writer, readers, files, initialItems, bar)
+	err = mergeHeapToOutput(writer, readers, files, initialItems, bar, chunkFiles)
 	if err != nil {
 		return err
-	}
-
-	for _, f := range chunkFiles {
-		utils.SafeRemove(f)
 	}
 
 	return nil

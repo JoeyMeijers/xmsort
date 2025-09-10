@@ -16,7 +16,7 @@ func SetupLogging() {
 	}
 
 	multiWriter := io.MultiWriter(os.Stdout, logFile)
-	logger = log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile)
+	logger = log.New(multiWriter, "XMSORT: ", log.Ldate|log.Ltime)
 }
 
 func LogInfo(message string, args ...any) {

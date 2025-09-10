@@ -18,20 +18,14 @@ import (
 const MAX_MERGE_BATCH = 100
 
 func main() {
-	utils.SetupLogging()
 
 	if len(os.Args) == 1 {
-    // flag.Usage()           // gewone flags
-    utils.PrintXSSortUsage()     // extra voor XSSORT
-    os.Exit(1)
+		config.PrintXMSortUsage()
+		os.Exit(1)
 	}
 
-	var cfg config.Config
-	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "I=") || strings.HasPrefix(os.Args[1], "O=") || strings.HasPrefix(os.Args[1], "K=") || strings.HasPrefix(os.Args[1], "D=")) {
-		cfg = config.ParseXSSortParams(strings.Join(os.Args[1:], " "))
-	} else {
-		cfg = config.ParseFlags()
-	}
+	utils.SetupLogging()
+	cfg := config.ParseXSSortParams(strings.Join(os.Args[1:], " "))
 
 	inputFile := cfg.InputFile
 	outputFile := cfg.OutputFile
@@ -44,7 +38,7 @@ func main() {
 	recordLength := cfg.RecordLength
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		utils.LogError("Input file does not exist!")
+		utils.LogError("Input file does not exists: %s", inputFile)
 		return
 	}
 
