@@ -50,8 +50,6 @@ func TestMergeHeapToOutput(t *testing.T) {
 
 	file1 := createTempFile(t, content1)
 	file2 := createTempFile(t, content2)
-	defer os.Remove(file1)
-	defer os.Remove(file2)
 
 	keys := []sorting.SortKey{
 		{Start: 0, Length: 5, Numeric: false, Asc: true},
@@ -63,7 +61,7 @@ func TestMergeHeapToOutput(t *testing.T) {
 	writer := bufio.NewWriter(&builder)
 	bar := pb.New(3)
 	bar.Start()
-	err = mergeHeapToOutput(writer, readers, files, items, bar)
+	err = mergeHeapToOutput(writer, readers, files, items, bar, []string{file1, file2})
 	assert.NoError(t, err)
 
 	assert.Contains(t, builder.String(), "apple")
