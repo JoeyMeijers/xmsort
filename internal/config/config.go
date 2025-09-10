@@ -30,7 +30,7 @@ type Config struct {
 }
 
 func PrintXSSortUsage() {
-	fmt.Println("XSSORT-style parameters:")
+	fmt.Println("XSSORT parameters:")
 	fmt.Println("  I=<file>      Input file")
 	fmt.Println("  O=<file>      Output file")
 	fmt.Println("  RL=<length>   Record length")
