@@ -29,7 +29,7 @@ type Config struct {
 	Memory           string // MEM=...
 }
 
-func PrintXSSortUsage() {
+func PrintXMSortUsage() {
 	fmt.Println("XSSORT parameters:")
 	fmt.Println("  I=<file>      Input file")
 	fmt.Println("  O=<file>      Output file")
@@ -177,22 +177,22 @@ func ParseXSSortParams(params string) Config {
 	// Validate required parameters
 	if cfg.InputFile == "" {
 		fmt.Println("Error: Input file (I=...) is required.")
-		PrintXSSortUsage()
+		PrintXMSortUsage()
 		ExitFunc(1)
 	}
 	if cfg.OutputFile == "" {
 		fmt.Println("Error: Output file (O=...) is required.")
-		PrintXSSortUsage()
+		PrintXMSortUsage()
 		ExitFunc(1)
 	}
 	if cfg.RecordLength == 0 {
 		fmt.Println("Error: Record length (RL=...) must be specified and greater than 0.")
-		PrintXSSortUsage()
+		PrintXMSortUsage()
 		ExitFunc(1)
 	}
 	if len(cfg.SortKeys) == 0 {
 		fmt.Println("Error: At least one sort key (S1=...) must be specified.")
-		PrintXSSortUsage()
+		PrintXMSortUsage()
 		ExitFunc(1)
 	}
 	return cfg

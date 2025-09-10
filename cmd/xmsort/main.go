@@ -20,7 +20,7 @@ const MAX_MERGE_BATCH = 100
 func main() {
 
 	if len(os.Args) == 1 {
-		config.PrintXSSortUsage()
+		config.PrintXMSortUsage()
 		os.Exit(1)
 	}
 
