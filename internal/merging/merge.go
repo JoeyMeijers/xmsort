@@ -6,9 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 
-	"github.com/cheggaaa/pb/v3"
 	"github.com/joeymeijers/xmsort/internal/sorting"
 	"github.com/joeymeijers/xmsort/internal/utils"
 )
@@ -19,8 +17,6 @@ type heapItem struct {
 	fileID    int
 	sortKeys  []sorting.SortKey
 	delimiter string
-	truncateSpaces bool
-	emptyNumbers   string
 }
 
 // minHeap is a min-heap of heapItems.
@@ -29,7 +25,7 @@ type minHeap []heapItem
 func (h minHeap) Len() int { return len(h) }
 
 func (h minHeap) Less(i, j int) bool {
-	return sorting.CompareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter, h[i].truncateSpaces, h[i].emptyNumbers)
+	return sorting.CompareLines(h[i].line, h[j].line, h[i].sortKeys, h[i].delimiter, false, "")
 }
 
 func (h minHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
@@ -46,145 +42,156 @@ func (h *minHeap) Pop() any {
 	return item
 }
 
-func openChunkFiles(
-	chunkFiles []string,
-	sortKeys []sorting.SortKey,
-	delimiter string,
-) ([]*bufio.Reader, []*os.File, []heapItem, error) {
+// multiWayMerge merges up to maxOpenFiles chunk files into a single output file.
+func multiWayMerge(outputFile string, chunkFiles []string, sortKeys []sorting.SortKey, delimiter string) error {
 	readers := make([]*bufio.Reader, len(chunkFiles))
 	files := make([]*os.File, len(chunkFiles))
-	openSem := make(chan struct{}, utils.GetMaxOpenFiles())
-	var openWg sync.WaitGroup
-	var errOnce sync.Once
-	var exitErr error
-
-	itemChan := make(chan heapItem, len(chunkFiles))
-
-	for i := range chunkFiles {
-		openWg.Add(1)
-		go func(i int) {
-			openSem <- struct{}{}
-			defer func() {
-				<-openSem
-				openWg.Done()
-			}()
-
-			f, err := os.Open(chunkFiles[i])
-			if err != nil {
-				errOnce.Do(func() { exitErr = err })
-				return
+	for i, fpath := range chunkFiles {
+		f, err := os.Open(fpath)
+		if err != nil {
+			for j := 0; j < i; j++ {
+				utils.SafeClose(files[j])
 			}
-			files[i] = f
-			readers[i] = bufio.NewReader(f)
-			line, err := readers[i].ReadString('\n')
-			if err != nil && err != io.EOF {
-				errOnce.Do(func() { exitErr = err })
-				return
-			}
-			line = strings.TrimRight(line, "\r\n")
-			if err != io.EOF || len(line) > 0 {
-				itemChan <- heapItem{
-					line:      line,
-					fileID:    i,
-					sortKeys:  sortKeys,
-					delimiter: delimiter,
-				}
-			}
-		}(i)
+			return err
+		}
+		files[i] = f
+		readers[i] = bufio.NewReader(f)
 	}
 
-	go func() {
-		openWg.Wait()
-		close(itemChan)
-	}()
-
-	var initialHeapItems []heapItem
-	for item := range itemChan {
-		initialHeapItems = append(initialHeapItems, item)
+	out, err := os.Create(outputFile)
+	if err != nil {
+		for _, f := range files {
+			utils.SafeClose(f)
+		}
+		return err
 	}
-
-	if exitErr != nil {
-		return nil, nil, nil, exitErr
-	}
-
-	return readers, files, initialHeapItems, nil
-}
-
-func mergeHeapToOutput(
-	writer *bufio.Writer,
-	readers []*bufio.Reader,
-	files []*os.File,
-	initialItems []heapItem,
-	bar *pb.ProgressBar,
-	chunkFiles []string,
-) error {
-	var errOnce sync.Once
-	var exitErr error
+	writer := bufio.NewWriterSize(out, 16*1024*1024)
 
 	h := &minHeap{}
 	heap.Init(h)
-	for _, item := range initialItems {
-		heap.Push(h, item)
+
+	for i, r := range readers {
+		line, err := r.ReadString('\n')
+		if err != nil && err != io.EOF {
+			for _, f := range files {
+				utils.SafeClose(f)
+			}
+			utils.SafeClose(out)
+			return err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if err != io.EOF || len(line) > 0 {
+			heap.Push(h, heapItem{
+				line:      line,
+				fileID:    i,
+				sortKeys:  sortKeys,
+				delimiter: delimiter,
+			})
+		}
 	}
+
 	newline := utils.GetNewline()
+
 	for h.Len() > 0 {
 		item := heap.Pop(h).(heapItem)
 		_, err := writer.WriteString(item.line + newline)
 		if err != nil {
-			errOnce.Do(func() { exitErr = err })
-			break
+			for _, f := range files {
+				utils.SafeClose(f)
+			}
+			utils.SafeClose(out)
+			return err
 		}
-		bar.Increment()
 
 		line, err := readers[item.fileID].ReadString('\n')
 		if err != nil && err != io.EOF {
-			errOnce.Do(func() { exitErr = err })
-			break
+			for _, f := range files {
+				utils.SafeClose(f)
+			}
+			utils.SafeClose(out)
+			return err
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if err != io.EOF || len(line) > 0 {
 			heap.Push(h, heapItem{
 				line:      line,
 				fileID:    item.fileID,
-				sortKeys:  item.sortKeys,
-				delimiter: item.delimiter,
+				sortKeys:  sortKeys,
+				delimiter: delimiter,
 			})
-		} else if err == io.EOF {
-			utils.SafeClose(files[item.fileID])
-			utils.SafeRemove(chunkFiles[item.fileID]) // delete chunk immediately
 		}
 	}
 
-	utils.SafeFlush(writer)
-	bar.Finish()
-
-	return exitErr
+	for _, f := range files {
+		utils.SafeClose(f)
+	}
+	err = writer.Flush()
+	if err != nil {
+		utils.SafeClose(out)
+		return err
+	}
+	utils.SafeClose(out)
+	return nil
 }
 
-func MergeChunks(outputFile string, chunkFiles []string, sortKeys []sorting.SortKey, delimiter string) error {
-	out, err := os.Create(outputFile)
-	if err != nil {
-		return err
-	}
-	defer utils.SafeClose(out)
-
-	totalLines := 0
-	for _, f := range chunkFiles {
-		totalLines += utils.EstimateLineCount(f)
-	}
-	bar := pb.StartNew(totalLines)
-	bar.SetWriter(os.Stdout)
-
-	readers, files, initialItems, err := openChunkFiles(chunkFiles, sortKeys, delimiter)
-	if err != nil {
-		return err
+// MultiLevelMerge merges chunk files in batches of maxOpenFiles until only one output file remains.
+// If tempDir is empty, os.TempDir() is used for intermediate files.
+func MultiLevelMerge(outputFile string, chunkFiles []string, sortKeys []sorting.SortKey, delimiter string, maxOpenFiles int, tempDir string) error {
+	if len(chunkFiles) == 0 {
+		// No chunks to merge, create empty output file
+		out, err := os.Create(outputFile)
+		if err != nil {
+			return err
+		}
+		return utils.SafeClose(out)
 	}
 
-	writer := bufio.NewWriterSize(out, 16*1024*1024)
-	err = mergeHeapToOutput(writer, readers, files, initialItems, bar, chunkFiles)
-	if err != nil {
-		return err
+	// If only one chunk, just rename it to outputFile
+	if len(chunkFiles) == 1 {
+		return os.Rename(chunkFiles[0], outputFile)
 	}
 
-	return nil
+	currentFiles := make([]string, len(chunkFiles))
+	copy(currentFiles, chunkFiles)
+
+	for len(currentFiles) > 1 {
+		var nextLevelFiles []string
+		for i := 0; i < len(currentFiles); i += maxOpenFiles {
+			end := i + maxOpenFiles
+			if end > len(currentFiles) {
+				end = len(currentFiles)
+			}
+			batch := currentFiles[i:end]
+
+			tempFile, err := os.CreateTemp(tempDir, "xmsort_merge_*.txt")
+			if err != nil {
+				for _, f := range nextLevelFiles {
+					utils.SafeRemove(f)
+				}
+				return err
+			}
+			tempFilePath := tempFile.Name()
+			utils.SafeClose(tempFile)
+
+			err = multiWayMerge(tempFilePath, batch, sortKeys, delimiter)
+			if err != nil {
+				utils.SafeRemove(tempFilePath)
+				for _, f := range nextLevelFiles {
+					utils.SafeRemove(f)
+				}
+				return err
+			}
+
+			// Remove merged input chunks
+			for _, f := range batch {
+				utils.SafeRemove(f)
+			}
+
+			nextLevelFiles = append(nextLevelFiles, tempFilePath)
+		}
+		currentFiles = nextLevelFiles
+	}
+
+	// Rename the final merged file to outputFile
+	return os.Rename(currentFiles[0], outputFile)
 }

@@ -1,12 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/joeymeijers/xmsort/internal/config"
@@ -14,8 +11,6 @@ import (
 	"github.com/joeymeijers/xmsort/internal/sorting"
 	"github.com/joeymeijers/xmsort/internal/utils"
 )
-
-const MAX_MERGE_BATCH = 100
 
 func main() {
 
@@ -36,6 +31,7 @@ func main() {
 	emptyNumbers := cfg.EmptyNumbers
 	recordType := strings.ToUpper(cfg.RecordType)
 	recordLength := cfg.RecordLength
+	tempDir := cfg.TempDir
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exists: %s", inputFile)
@@ -62,7 +58,7 @@ func main() {
 	chunkSize := utils.CalculateChunkSize(averageLineSize)
 	utils.LogInfo("Calculated chunk size: %d", chunkSize)
 
-	tempDir, err := os.MkdirTemp("", "sort_chunks")
+	tempDir, err := utils.MakeTempDir(tempDir)
 	if err != nil {
 		utils.LogError("Error creating temp directory: %v", err)
 		return
@@ -99,66 +95,10 @@ func main() {
 		return
 	}
 
-	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
-
-	var (
-		intermediateFiles []string
-		mergeWg           sync.WaitGroup
-		mergeErrOnce      sync.Once
-		mergeErr          error
-		mergeSem          = make(chan struct{}, runtime.NumCPU())
-		intermediateMu    sync.Mutex
-	)
-
-	for i := 0; i < len(chunkFiles); i += MAX_MERGE_BATCH {
-		end := min(i+MAX_MERGE_BATCH, len(chunkFiles))
-		mergeWg.Add(1)
-		mergeSem <- struct{}{}
-		go func(i, end, batch int) {
-			defer mergeWg.Done()
-			defer func() { <-mergeSem }()
-			intermediate := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.txt", batch))
-			tmpFile := filepath.Join(tempDir, fmt.Sprintf("intermediate_%d.tmp", batch))
-			utils.LogInfo("Merging batch %d/%d (%d files)", batch+1, totalBatches, end-i)
-			err := merging.MergeChunks(tmpFile, chunkFiles[i:end], sortKeys, delimiter)
-			if err == nil {
-				if _, statErr := os.Stat(tmpFile); statErr == nil {
-					err = os.Rename(tmpFile, intermediate)
-				} else {
-					err = fmt.Errorf("temp file missing before rename: %v", statErr)
-				}
-			}
-			if err != nil {
-				mergeErrOnce.Do(func() { mergeErr = err })
-				return
-			}
-			intermediateMu.Lock()
-			intermediateFiles = append(intermediateFiles, intermediate)
-			intermediateMu.Unlock()
-		}(i, end, i/MAX_MERGE_BATCH)
-	}
-	mergeWg.Wait()
-
-	if mergeErr != nil {
-		utils.LogError("Error in batch merge: %v", mergeErr)
-		return
-	}
-
-	if len(intermediateFiles) == 1 {
-		utils.LogInfo("Only one intermediate file, skipping final merge")
-		err := os.Rename(intermediateFiles[0], outputFile)
-		if err != nil {
-			utils.LogError("Error renaming intermediate file to output file: %v", err)
-			return
-		}
-		utils.LogInfo("Sorting completed in %v\n", time.Since(start))
-		return
-	}
-
-	utils.LogInfo("Merging final batch %d/%d (%d files)", totalBatches, totalBatches, len(intermediateFiles))
-	err = merging.MergeChunks(outputFile, intermediateFiles, sortKeys, delimiter)
+	utils.LogInfo("Performing multi-level merge of %d chunk files...", len(chunkFiles))
+	err = merging.MultiLevelMerge(outputFile, chunkFiles, sortKeys, delimiter, runtime.NumCPU(), tempDir)
 	if err != nil {
-		utils.LogError("Error merging intermediate files: %v", err)
+		utils.LogError("Error during multi-level merge: %v", err)
 		return
 	}
 

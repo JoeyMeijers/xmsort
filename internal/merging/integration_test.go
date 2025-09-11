@@ -8,25 +8,28 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMergeChunksIntegration(t *testing.T) {
+func TestMultiLevelMergeIntegration(t *testing.T) {
 	chunk1 := createTempFile(t, "orange,2\nbanana,5\n")
 	chunk2 := createTempFile(t, "apple,1\n")
 	defer os.Remove(chunk1)
 	defer os.Remove(chunk2)
 
-	outputFile := chunk1 + "_out.txt"
-	defer os.Remove(outputFile)
+	outputFile, err := os.CreateTemp("", "merged_output_*.txt")
+	assert.NoError(t, err)
+	outputFilePath := outputFile.Name()
+	outputFile.Close()
+	defer os.Remove(outputFilePath)
 
 	keys := []sorting.SortKey{
 		{Start: 0, Length: 6, Numeric: false, Asc: false},
 	}
-	err := MergeChunks(outputFile, []string{chunk1, chunk2}, keys, ",")
+	err = MultiLevelMerge(outputFilePath, []string{chunk1, chunk2}, keys, ",", 2, "")
 	assert.NoError(t, err)
 
-	data, err := os.ReadFile(outputFile)
+	data, err := os.ReadFile(outputFilePath)
 	assert.NoError(t, err)
 	lines := string(data)
-	assert.Contains(t, lines, "apple")
-	assert.Contains(t, lines, "banana")
-	assert.Contains(t, lines, "orange")
+	assert.Contains(t, lines, "apple,1")
+	assert.Contains(t, lines, "banana,5")
+	assert.Contains(t, lines, "orange,2")
 }
