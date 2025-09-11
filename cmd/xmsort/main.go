@@ -88,6 +88,17 @@ func main() {
 	}
 	utils.LogInfo("Created %d chunk files", len(chunkFiles))
 
+	if len(chunkFiles) == 1 {
+		utils.LogInfo("Only one chunk created, skipping merge")
+		err := os.Rename(chunkFiles[0], outputFile)
+		if err != nil {
+			utils.LogError("Error renaming chunk file to output file: %v", err)
+			return
+		}
+		utils.LogInfo("Sorting completed in %v\n", time.Since(start))
+		return
+	}
+
 	totalBatches := (len(chunkFiles) + MAX_MERGE_BATCH - 1) / MAX_MERGE_BATCH
 
 	var (
@@ -130,6 +141,17 @@ func main() {
 
 	if mergeErr != nil {
 		utils.LogError("Error in batch merge: %v", mergeErr)
+		return
+	}
+
+	if len(intermediateFiles) == 1 {
+		utils.LogInfo("Only one intermediate file, skipping final merge")
+		err := os.Rename(intermediateFiles[0], outputFile)
+		if err != nil {
+			utils.LogError("Error renaming intermediate file to output file: %v", err)
+			return
+		}
+		utils.LogInfo("Sorting completed in %v\n", time.Since(start))
 		return
 	}
 
