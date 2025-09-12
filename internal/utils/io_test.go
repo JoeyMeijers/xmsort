@@ -41,7 +41,7 @@ func TestEstimateAverageLineSize(t *testing.T) {
 }
 
 func TestCalculateChunkSize_ReturnsWithinBounds(t *testing.T) {
-	size := utils.CalculateChunkSize(100)
+	size := utils.CalculateChunkSize(100, 1024*1024)
 	require.GreaterOrEqual(t, size, utils.MIN_CHUNK_SIZE)
 	require.LessOrEqual(t, size, utils.MAX_CHUNK_SIZE)
 }

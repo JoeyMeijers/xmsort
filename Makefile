@@ -1,4 +1,4 @@
-TEST_RECORDS=500_000_000
+TEST_RECORDS=1_000_000_000
 
 generate:
 	go run ./cmd/genfile/ --records=$(TEST_RECORDS)

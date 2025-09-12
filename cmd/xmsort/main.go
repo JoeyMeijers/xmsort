@@ -31,7 +31,6 @@ func main() {
 	emptyNumbers := cfg.EmptyNumbers
 	recordType := strings.ToUpper(cfg.RecordType)
 	recordLength := cfg.RecordLength
-	tempDir := cfg.TempDir
 
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		utils.LogError("Input file does not exists: %s", inputFile)
@@ -55,10 +54,15 @@ func main() {
 
 	averageLineSize := utils.EstimateAverageLineSize(inputFile)
 	utils.LogInfo("Estimated average line size: %v", averageLineSize)
-	chunkSize := utils.CalculateChunkSize(averageLineSize)
+	memLimit, err := utils.ParseMemoryString(cfg.Memory)
+	if err != nil {
+		utils.LogError("Error parsing memory string: %v", err)
+		os.Exit(1)
+	}
+	chunkSize := utils.CalculateChunkSize(averageLineSize, memLimit)
 	utils.LogInfo("Calculated chunk size: %d", chunkSize)
 
-	tempDir, err := utils.MakeTempDir(tempDir)
+	tempDir, err := utils.MakeTempDir(cfg.TempDir)
 	if err != nil {
 		utils.LogError("Error creating temp directory: %v", err)
 		return
